@@ -131,27 +131,61 @@ const requireAdmin = async (req, res, next) => {
   try {
     // Ensure user is authenticated first
     if (!req.user || !req.user.uid) {
+      console.error('❌ requireAdmin: No user or uid in request');
       return res.status(401).json({ 
         message: 'Authentication required',
         code: 'NOT_AUTHENTICATED'
       });
     }
 
+    console.log(`🔍 requireAdmin: Checking admin status for user: ${req.user.uid}`);
+
     // Check database for admin status
     const { getUsersCollection } = require('../config/database');
-    const usersCollection = getUsersCollection();
     
-    if (!usersCollection) {
-      console.error('Database collection not available');
+    let usersCollection;
+    try {
+      usersCollection = await getUsersCollection();
+      
+      // Verify it's actually a collection
+      if (!usersCollection || typeof usersCollection.findOne !== 'function') {
+        console.error('❌ requireAdmin: Invalid collection object');
+        console.error('❌ requireAdmin: Collection type:', typeof usersCollection);
+        console.error('❌ requireAdmin: Collection value:', usersCollection);
+        return res.status(500).json({ 
+          message: 'Database collection not available or invalid',
+          code: 'DB_ERROR',
+          error: process.env.NODE_ENV === 'development' ? 'Collection object is not valid' : undefined
+        });
+      }
+      
+      console.log('✅ requireAdmin: Got valid users collection');
+    } catch (dbError) {
+      console.error('❌ requireAdmin: Error getting users collection:', dbError);
+      console.error('Error stack:', dbError.stack);
       return res.status(500).json({ 
-        message: 'Database error',
-        code: 'DB_ERROR'
+        message: 'Database connection error',
+        code: 'DB_CONNECTION_ERROR',
+        error: process.env.NODE_ENV === 'development' ? dbError.message : undefined
       });
     }
     
-    const user = await usersCollection.findOne({ uid: req.user.uid });
+    let user;
+    try {
+      user = await usersCollection.findOne({ uid: req.user.uid });
+      console.log(`🔍 requireAdmin: Found user: ${user ? 'Yes' : 'No'}, isAdmin: ${user?.isAdmin}`);
+    } catch (findError) {
+      console.error('❌ requireAdmin: Error finding user:', findError);
+      console.error('Error stack:', findError.stack);
+      return res.status(500).json({ 
+        message: 'Error querying user database',
+        code: 'DB_QUERY_ERROR',
+        error: process.env.NODE_ENV === 'development' ? findError.message : undefined
+      });
+    }
 
     if (!user) {
+      console.warn(`⚠️ requireAdmin: User profile not found for uid: ${req.user.uid}`);
       return res.status(403).json({ 
         message: 'User profile not found. Please complete your profile.',
         code: 'USER_NOT_FOUND'
@@ -160,24 +194,27 @@ const requireAdmin = async (req, res, next) => {
 
     // Check admin status - must be explicitly true
     if (user.isAdmin !== true) {
-      console.warn(`Unauthorized admin access attempt by user: ${req.user.uid}`);
+      console.warn(`🚫 requireAdmin: User ${req.user.uid} is not admin (isAdmin: ${user.isAdmin})`);
       return res.status(403).json({ 
         message: 'Admin access required',
         code: 'FORBIDDEN'
       });
     }
 
+    console.log(`✅ requireAdmin: User ${req.user.uid} is verified as admin`);
     // Attach admin status to request object
     req.user.isAdmin = true;
     req.user.adminVerified = true; // Flag that admin status was verified
     
     next();
   } catch (error) {
-    console.error('Admin check error:', error);
+    console.error('❌ requireAdmin: Unexpected error:', error);
+    console.error('Error stack:', error.stack);
     return res.status(500).json({ 
       message: 'Error checking admin status',
       code: 'ADMIN_CHECK_ERROR',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };

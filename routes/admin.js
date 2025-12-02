@@ -8,7 +8,7 @@ const Project = require('../models/Project');
 // Get all projects (admin only)
 router.get('/projects', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const projectsCollection = getProjectsCollection();
+    const projectsCollection = await getProjectsCollection();
     const projects = await projectsCollection.find({}).sort({ createdAt: -1 }).toArray();
     res.json(projects.map(p => new Project(p).toJSON()));
   } catch (error) {
@@ -20,7 +20,7 @@ router.get('/projects', verifyToken, requireAdmin, async (req, res) => {
 // Get pending projects
 router.get('/projects/pending', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const projectsCollection = getProjectsCollection();
+    const projectsCollection = await getProjectsCollection();
     const projects = await projectsCollection
       .find({ status: 'pending' })
       .sort({ createdAt: -1 })

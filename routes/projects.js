@@ -25,9 +25,9 @@ const upload = multer({
 // Get all projects (with optional filters)
 router.get('/', optionalAuth, async (req, res) => {
   try {
-    const projectsCollection = getProjectsCollection();
+    const projectsCollection = await getProjectsCollection();
     const { getUsersCollection } = require('../config/database');
-    const usersCollection = getUsersCollection();
+    const usersCollection = await getUsersCollection();
     const query = {};
 
     // Check if user is admin by querying database
@@ -42,9 +42,21 @@ router.get('/', optionalAuth, async (req, res) => {
     }
 
     // Filter by status (default to approved for non-authenticated users)
+    let statusFilter = null;
     if (isAdmin) {
-      // Admins can see all projects
+      // Admins can see all projects - no status filter
+      // Don't add any status filter to query
+      console.log('👤 Admin user detected - returning all projects');
+    } else if (req.user && req.user.uid) {
+      // Authenticated users can see approved projects AND their own pending projects
+      statusFilter = {
+        $or: [
+          { status: 'approved' },
+          { status: 'pending', authorId: req.user.uid }
+        ]
+      };
     } else {
+      // Non-authenticated users only see approved projects
       query.status = 'approved';
     }
 
@@ -83,21 +95,54 @@ router.get('/', optionalAuth, async (req, res) => {
         query.supervisor = { $regex: sanitizedSupervisor, $options: 'i' };
       }
     }
+    
+    // Handle keywords search - combine with status filter if needed
     if (req.query.keywords) {
       // Sanitize: remove special regex characters and limit length
       const sanitizedKeywords = String(req.query.keywords)
         .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         .substring(0, 200);
       if (sanitizedKeywords.length > 0) {
-        query.$or = [
-          { title: { $regex: sanitizedKeywords, $options: 'i' } },
-          { abstract: { $regex: sanitizedKeywords, $options: 'i' } },
-          { tags: { $regex: sanitizedKeywords, $options: 'i' } },
-        ];
+        const keywordFilter = {
+          $or: [
+            { title: { $regex: sanitizedKeywords, $options: 'i' } },
+            { abstract: { $regex: sanitizedKeywords, $options: 'i' } },
+            { tags: { $regex: sanitizedKeywords, $options: 'i' } },
+          ]
+        };
+        
+        // Combine status filter and keyword filter using $and
+        if (statusFilter) {
+          query.$and = [
+            statusFilter,
+            keywordFilter
+          ];
+        } else {
+          query.$or = keywordFilter.$or;
+        }
+      } else if (statusFilter) {
+        // Only status filter, no keywords
+        query.$and = [statusFilter];
       }
+    } else if (statusFilter) {
+      // Only status filter, no keywords
+      query.$and = [statusFilter];
     }
 
+    console.log('🔍 Fetching projects with query:', JSON.stringify(query, null, 2));
     const projects = await projectsCollection.find(query).sort({ createdAt: -1 }).toArray();
+    console.log(`✅ Found ${projects.length} projects`);
+    
+    // Log status distribution for debugging (especially for admins)
+    if (isAdmin) {
+      const statusCounts = {
+        pending: projects.filter(p => p.status === 'pending').length,
+        approved: projects.filter(p => p.status === 'approved').length,
+        rejected: projects.filter(p => p.status === 'rejected').length,
+      };
+      console.log('📊 Admin view - Projects by status:', statusCounts);
+    }
+    
     res.json(projects.map(p => new Project(p).toJSON()));
   } catch (error) {
     console.error('Error fetching projects:', error);
@@ -108,7 +153,7 @@ router.get('/', optionalAuth, async (req, res) => {
 // Get project by ID
 router.get('/:id', optionalAuth, async (req, res) => {
   try {
-    const projectsCollection = getProjectsCollection();
+    const projectsCollection = await getProjectsCollection();
     
     let project;
     if (ObjectId.isValid(req.params.id)) {
@@ -136,7 +181,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
 // Get user's projects
 router.get('/user/:userId', verifyToken, async (req, res) => {
   try {
-    const projectsCollection = getProjectsCollection();
+    const projectsCollection = await getProjectsCollection();
     const userId = req.params.userId === 'me' ? req.user.uid : req.params.userId;
 
     // Only allow users to see their own projects unless they're admin
@@ -159,7 +204,11 @@ router.get('/user/:userId', verifyToken, async (req, res) => {
 // Submit a new project
 router.post('/', verifyToken, upload.single('pdf'), async (req, res) => {
   try {
-    const projectsCollection = getProjectsCollection();
+    console.log('📥 Received project submission request');
+    console.log('📋 Request body keys:', Object.keys(req.body));
+    console.log('📄 File uploaded:', req.file ? 'Yes' : 'No');
+    
+    const projectsCollection = await getProjectsCollection();
     
     // Basic input validation
     if (!req.body.title || typeof req.body.title !== 'string' || req.body.title.trim().length === 0) {
@@ -234,15 +283,18 @@ router.post('/', verifyToken, upload.single('pdf'), async (req, res) => {
     let githubLink = '';
     if (req.body.githubLink) {
       const githubUrl = String(req.body.githubLink).trim();
-      try {
-        const url = new URL(githubUrl);
-        if (url.hostname === 'github.com' || url.hostname === 'www.github.com') {
-          githubLink = githubUrl.substring(0, 500);
-        } else {
-          return res.status(400).json({ message: 'Invalid GitHub URL. Must be a github.com link.' });
+      // Allow empty strings (optional field)
+      if (githubUrl.length > 0) {
+        try {
+          const url = new URL(githubUrl);
+          if (url.hostname === 'github.com' || url.hostname === 'www.github.com') {
+            githubLink = githubUrl.substring(0, 500);
+          } else {
+            return res.status(400).json({ message: 'Invalid GitHub URL. Must be a github.com link.' });
+          }
+        } catch {
+          return res.status(400).json({ message: 'Invalid GitHub URL format.' });
         }
-      } catch {
-        return res.status(400).json({ message: 'Invalid GitHub URL format.' });
       }
     }
 
@@ -262,8 +314,44 @@ router.post('/', verifyToken, upload.single('pdf'), async (req, res) => {
       updatedAt: new Date(),
     };
 
+    console.log('📝 Submitting project:', {
+      title: projectData.title,
+      author: projectData.author,
+      authorId: projectData.authorId,
+      status: projectData.status
+    });
+
+    // Verify database connection before insert
+    const { isConnected } = require('../config/database');
+    if (!isConnected()) {
+      console.error('❌ Database not connected!');
+      return res.status(500).json({ message: 'Database connection error. Please try again.' });
+    }
+
+    console.log('💾 Inserting project into MongoDB...');
     const result = await projectsCollection.insertOne(projectData);
+    console.log('✅ Insert result:', {
+      acknowledged: result.acknowledged,
+      insertedId: result.insertedId
+    });
+
+    if (!result.acknowledged) {
+      console.error('❌ Insert was not acknowledged by MongoDB');
+      return res.status(500).json({ message: 'Failed to save project to database' });
+    }
+
     const project = await projectsCollection.findOne({ _id: result.insertedId });
+
+    if (!project) {
+      console.error('❌ Failed to retrieve inserted project');
+      return res.status(500).json({ message: 'Project created but could not be retrieved' });
+    }
+
+    console.log('✅ Project created successfully:', {
+      id: project._id,
+      title: project.title,
+      status: project.status
+    });
 
     res.status(201).json({ message: 'Project submitted successfully', project: new Project(project).toJSON() });
   } catch (error) {
@@ -275,9 +363,9 @@ router.post('/', verifyToken, upload.single('pdf'), async (req, res) => {
 // Update project status (for admin or project owner)
 router.put('/:id/status', verifyToken, async (req, res) => {
   try {
-    const projectsCollection = getProjectsCollection();
+    const projectsCollection = await getProjectsCollection();
     const { getUsersCollection } = require('../config/database');
-    const usersCollection = getUsersCollection();
+    const usersCollection = await getUsersCollection();
     
     // Check if user is admin
     const user = await usersCollection.findOne({ uid: req.user.uid });

@@ -8,7 +8,7 @@ const User = require('../models/User');
 // Get user profile
 router.get('/profile', verifyToken, async (req, res) => {
   try {
-    const usersCollection = getUsersCollection();
+    const usersCollection = await getUsersCollection();
     const user = await usersCollection.findOne({ uid: req.user.uid });
 
     if (!user) {
@@ -25,7 +25,7 @@ router.get('/profile', verifyToken, async (req, res) => {
 // Create or update user profile
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const usersCollection = getUsersCollection();
+    const usersCollection = await getUsersCollection();
     
     // Ensure required fields
     const userData = {
@@ -71,7 +71,7 @@ router.post('/', verifyToken, async (req, res) => {
 // Update user profile
 router.put('/profile', verifyToken, async (req, res) => {
   try {
-    const usersCollection = getUsersCollection();
+    const usersCollection = await getUsersCollection();
     const updateData = {
       ...req.body,
       updatedAt: new Date(),
