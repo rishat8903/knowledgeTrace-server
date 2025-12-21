@@ -3,6 +3,11 @@ const cors = require('cors');
 require('dotenv').config();
 const { connectDB } = require('./config/database');
 const { verifyToken } = require('./middleware/auth');
+const logger = require('./config/logger');
+const requestLogger = require('./middleware/requestLogger');
+const errorHandler = require('./middleware/errorHandler');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./config/swagger');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -15,39 +20,39 @@ const rateLimit = (windowMs = 15 * 60 * 1000, maxRequests = 100) => {
     if (req.method === 'OPTIONS') {
       return next();
     }
-    
+
     // Better IP detection - check various headers for proxy/load balancer scenarios
-    const key = req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
-      || req.headers['x-real-ip'] 
-      || req.connection.remoteAddress 
+    const key = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+      || req.headers['x-real-ip']
+      || req.connection.remoteAddress
       || req.socket.remoteAddress
-      || req.ip 
+      || req.ip
       || 'unknown';
-    
+
     const now = Date.now();
-    
+
     if (!rateLimitStore.has(key)) {
       rateLimitStore.set(key, { count: 1, resetTime: now + windowMs });
       return next();
     }
-    
+
     const record = rateLimitStore.get(key);
-    
+
     if (now > record.resetTime) {
       record.count = 1;
       record.resetTime = now + windowMs;
       return next();
     }
-    
+
     if (record.count >= maxRequests) {
       const retryAfter = Math.ceil((record.resetTime - now) / 1000);
       res.setHeader('Retry-After', retryAfter);
-      return res.status(429).json({ 
+      return res.status(429).json({
         message: 'Too many requests. Please try again later.',
         retryAfter: retryAfter
       });
     }
-    
+
     record.count++;
     next();
   };
@@ -56,7 +61,7 @@ const rateLimit = (windowMs = 15 * 60 * 1000, maxRequests = 100) => {
 // Clear rate limit store on server start (useful for development)
 if (process.env.NODE_ENV !== 'production') {
   rateLimitStore.clear();
-  console.log('🔄 Rate limit store cleared for development');
+  logger.info('🔄 Rate limit store cleared for development');
 }
 
 // Clean up old rate limit records periodically
@@ -75,19 +80,19 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
+
     // Allow the configured client URL
     if (origin === corsOrigin) {
       return callback(null, true);
     }
-    
+
     // In development, also allow localhost on different ports
     if (process.env.NODE_ENV !== 'production') {
       if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
         return callback(null, true);
       }
     }
-    
+
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -102,16 +107,16 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Log CORS configuration on startup
-console.log(`🌐 CORS configured for origin: ${corsOrigin}`);
+logger.info(`🌐 CORS configured for origin: ${corsOrigin}`);
 if (process.env.NODE_ENV !== 'production') {
-  console.log('🔓 Development mode: Allowing all localhost origins');
+  logger.info('🔓 Development mode: Allowing all localhost origins');
 }
 
 // Apply rate limiting (after CORS)
 // More lenient rate limiting for development, stricter for production
 const isDevelopment = process.env.NODE_ENV !== 'production';
 const generalRateLimit = rateLimit(
-  15 * 60 * 1000, 
+  15 * 60 * 1000,
   isDevelopment ? 1000 : 200 // Much higher limit in development
 );
 
@@ -135,6 +140,16 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Request logging middleware
+app.use(requestLogger);
+
+// Swagger API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'KnowledgeTrace API Docs'
+}));
+logger.info('📚 API Documentation available at /api-docs');
 
 // Routes
 const userRoutes = require('./routes/users');
@@ -163,33 +178,29 @@ app.get('/', (req, res) => {
   res.json({ message: 'KnowledgeTrace API is running!', status: 'ok' });
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({
-    message: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
-  });
+// 404 handler - must be before error handler
+app.use((req, res, next) => {
+  const error = new Error(`Route not found: ${req.originalUrl}`);
+  error.status = 404;
+  next(error);
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ message: 'Route not found' });
-});
+// Global error handling middleware - must be last
+app.use(errorHandler);
 
 // Start server
 async function startServer() {
   try {
     // Connect to MongoDB
     await connectDB();
-    
+
     // Start listening
     app.listen(port, () => {
-      console.log(`🚀 KnowledgeTrace server is running on port ${port}`);
-      console.log(`📡 API available at http://localhost:${port}/api`);
+      logger.info(`🚀 KnowledgeTrace server is running on port ${port}`);
+      logger.info(`📡 API available at http://localhost:${port}/api`);
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    logger.error('Failed to start server:', error);
     process.exit(1);
   }
 }
