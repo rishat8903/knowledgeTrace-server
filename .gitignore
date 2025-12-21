@@ -1,9 +1,26 @@
-node_modules
+# Logs directory
+*.log
+logs/
+
+# Environment variables
 .env
 .env.local
-.env.*.local
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+.env.production
+
+# Node modules
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
 .DS_Store
-*.log
+Thumbs.db
+
+# Build output
+dist/
+build/
+
+# Service account
+*service-account*.json
