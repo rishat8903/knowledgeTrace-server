@@ -10,6 +10,7 @@ const { createCollabPostSchema, updateCollabStatusSchema, collabQuerySchema } = 
 router.get('/', validate(collabQuerySchema, 'query'), collabController.getAllCollabPosts);
 router.get('/user/:userId', collabController.getUserCollabPosts);
 router.post('/', verifyToken, validate(createCollabPostSchema), collabController.createCollabPost);
+router.post('/:id/apply', verifyToken, collabController.applyToCollabPost);
 router.patch('/:id/status', verifyToken, validate(updateCollabStatusSchema), collabController.updateCollabStatus);
 router.delete('/:id', verifyToken, collabController.deleteCollabPost);
 

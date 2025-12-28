@@ -3,6 +3,7 @@ const { getUsersCollection, ObjectId } = require('../config/database');
 const logger = require('../config/logger');
 const CollabPost = require('../models/CollabPost');
 const catchAsync = require('../utils/catchAsync');
+const { createCollabRequestNotification } = require('../utils/notificationHelper');
 
 // Helper function to get collab posts collection
 async function getCollabPostsCollection() {
@@ -254,3 +255,60 @@ exports.deleteCollabPost = catchAsync(async (req, res) => {
         message: 'Collaboration post deleted successfully',
     });
 });
+
+/**
+ * Apply to collaboration post
+ * POST /api/collab/:id/apply
+ */
+exports.applyToCollabPost = catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const { message } = req.body;
+    const userId = req.user.uid;
+
+    const collabPostsCollection = await getCollabPostsCollection();
+    const usersCollection = await getUsersCollection();
+
+    // Get the post
+    let post;
+    if (ObjectId.isValid(id)) {
+        post = await collabPostsCollection.findOne({ _id: new ObjectId(id) });
+    } else {
+        post = await collabPostsCollection.findOne({ _id: id });
+    }
+
+    if (!post) {
+        return res.status(404).json({
+            success: false,
+            message: 'Collaboration post not found',
+        });
+    }
+
+    // Check if user is trying to apply to their own post
+    if (post.owner === userId) {
+        return res.status(400).json({
+            success: false,
+            message: 'You cannot apply to your own collaboration post',
+        });
+    }
+
+    // Get applicant user info
+    const applicant = await usersCollection.findOne({ uid: userId });
+
+    // Create notification for post owner
+    await createCollabRequestNotification(
+        post.owner,
+        userId,
+        applicant?.displayName || applicant?.name || 'Someone',
+        applicant?.photoURL || '',
+        post.title,
+        post._id.toString()
+    );
+
+    logger.info(`User ${userId} applied to collab post ${id}`);
+
+    res.status(200).json({
+        success: true,
+        message: 'Application sent! The post owner will be notified.',
+    });
+});
+

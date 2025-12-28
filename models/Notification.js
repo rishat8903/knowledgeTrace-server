@@ -10,6 +10,7 @@ class Notification {
     this.projectId = data.projectId || null;
     this.projectTitle = data.projectTitle || '';
     this.commentId = data.commentId || null; // Optional, for replies
+    this.relatedLink = data.relatedLink || ''; // Custom link for navigation
     this.message = data.message || ''; // Pre-formatted message
     this.read = data.read !== undefined ? data.read : false;
     this.createdAt = data.createdAt || new Date();
@@ -26,6 +27,7 @@ class Notification {
       projectId: this.projectId,
       projectTitle: this.projectTitle,
       commentId: this.commentId,
+      relatedLink: this.relatedLink,
       message: this.message,
       read: this.read,
       createdAt: this.createdAt,
