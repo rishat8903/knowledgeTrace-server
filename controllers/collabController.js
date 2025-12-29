@@ -7,8 +7,9 @@ const { createCollabRequestNotification } = require('../utils/notificationHelper
 
 // Helper function to get collab posts collection
 async function getCollabPostsCollection() {
-    const { getDatabase } = require('../config/database');
-    const db = getDatabase();
+    const { ensureConnection, getDB } = require('../config/database');
+    await ensureConnection();
+    const db = getDB();
     return db.collection('collabPosts');
 }
 
