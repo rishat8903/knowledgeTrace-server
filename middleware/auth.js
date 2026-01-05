@@ -313,11 +313,51 @@ const checkRole = (allowedRoles) => {
   };
 };
 
+/**
+ * Middleware to verify that the authenticated user has a university student email
+ * This should be used AFTER verifyToken middleware
+ * Usage: router.post('/route', verifyToken, verifyStudentEmail, controller)
+ */
+const verifyStudentEmail = async (req, res, next) => {
+  try {
+    // Ensure user is authenticated first
+    if (!req.user || !req.user.email) {
+      console.error('❌ verifyStudentEmail: No user or email in request');
+      return res.status(401).json({
+        message: 'Authentication required',
+        code: 'NOT_AUTHENTICATED'
+      });
+    }
+
+    const { validateUniversityEmail } = require('../utils/emailValidator');
+    const validation = validateUniversityEmail(req.user.email);
+
+    if (!validation.isValid) {
+      console.warn(`⚠️ Access denied for non-university email: ${req.user.email}`);
+      return res.status(403).json({
+        message: validation.message,
+        code: 'INVALID_EMAIL_DOMAIN'
+      });
+    }
+
+    console.log(`✅ University email verified: ${req.user.email}`);
+    next();
+  } catch (error) {
+    console.error('❌ verifyStudentEmail: Unexpected error:', error);
+    return res.status(500).json({
+      message: 'Error verifying email domain',
+      code: 'EMAIL_VERIFICATION_ERROR',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   verifyToken,
   optionalAuth,
   requireAdmin,
   checkRole,
+  verifyStudentEmail,
 };
 
 

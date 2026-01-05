@@ -35,6 +35,24 @@ exports.createOrUpdateUser = async (req, res) => {
             return res.status(400).json({ message: 'Name must be less than 100 characters' });
         }
 
+        const existingUser = await usersCollection.findOne({ uid: req.user.uid });
+
+        // Validate email domain for NEW users only
+        if (!existingUser) {
+            const { validateUniversityEmail } = require('../utils/emailValidator');
+            const validation = validateUniversityEmail(req.user.email);
+
+            if (!validation.isValid) {
+                console.warn(`⚠️ Signup blocked for non-university email: ${req.user.email}`);
+                return res.status(403).json({
+                    message: validation.message,
+                    code: 'INVALID_EMAIL_DOMAIN'
+                });
+            }
+
+            console.log(`✅ University email validated: ${req.user.email}`);
+        }
+
         // Ensure required fields
         const userData = {
             name: String(name).trim().substring(0, 100),
@@ -55,8 +73,6 @@ exports.createOrUpdateUser = async (req, res) => {
                 }
             }
         }
-
-        const existingUser = await usersCollection.findOne({ uid: req.user.uid });
 
         if (existingUser) {
             // Update existing user
