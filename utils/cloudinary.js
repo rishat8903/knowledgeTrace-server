@@ -28,15 +28,20 @@ const uploadToCloudinary = (buffer, filename) => {
       {
         resource_type: 'raw', // For PDF files
         folder: 'knowledgetrace/projects',
-        public_id: filename.replace(/\.[^/.]+$/, ''), // Remove extension
-        format: 'pdf',
+        public_id: `${Date.now()}_${filename.replace(/\.[^/.]+$/, '')}`, // Unique filename with timestamp
+        // Don't specify format for raw resources - it's inferred from the file
+        access_mode: 'public', // Ensure public access
+        type: 'upload', // Default upload type
       },
       (error, result) => {
         if (error) {
           console.error('Cloudinary upload error:', error);
           reject(error);
         } else {
-          resolve(result.secure_url);
+          // For raw PDFs, use the secure_url directly
+          const pdfUrl = result.secure_url;
+          console.log('✅ PDF uploaded successfully:', pdfUrl);
+          resolve(pdfUrl);
         }
       }
     );

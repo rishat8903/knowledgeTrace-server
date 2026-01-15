@@ -2,6 +2,27 @@
 const Joi = require('joi');
 
 /**
+ * Helper function to strip HTML tags for validation
+ */
+const stripHtml = (html) => {
+    if (!html || typeof html !== 'string') {
+        return '';
+    }
+    // Remove HTML tags
+    let text = html.replace(/<[^>]*>/g, '');
+    // Decode common HTML entities
+    text = text.replace(/&nbsp;/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&apos;/g, "'");
+    // Remove excessive whitespace and trim
+    return text.replace(/\s+/g, ' ').trim();
+};
+
+/**
  * Validation schema for creating a new project
  */
 const createProjectSchema = Joi.object({
@@ -17,27 +38,53 @@ const createProjectSchema = Joi.object({
         }),
 
     abstract: Joi.string()
-        .trim()
-        .min(50)
-        .max(5000)
         .required()
+        .custom((value, helpers) => {
+            // Strip HTML and validate plain text length
+            const plainText = stripHtml(value);
+            if (plainText.length < 50) {
+                return helpers.error('string.min', { limit: 50, length: plainText.length });
+            }
+            if (value.length > 5000) {
+                return helpers.error('string.max', { limit: 5000 });
+            }
+            return value;
+        })
         .messages({
             'string.empty': 'Project abstract is required',
-            'string.min': 'Abstract must be at least 50 characters long',
-            'string.max': 'Abstract must not exceed 5000 characters',
+            'string.min': 'Abstract must be at least {#limit} characters long (currently {#length} characters)',
+            'string.max': 'Abstract must not exceed {#limit} characters',
         }),
 
-    techStack: Joi.array()
-        .items(Joi.string().trim().max(50))
-        .max(20)
+    techStack: Joi.alternatives()
+        .try(
+            Joi.array().items(Joi.string().trim().max(50)).max(20),
+            Joi.string().custom((value, helpers) => {
+                // Allow comma-separated string as fallback
+                const array = value.split(',').map(t => t.trim()).filter(t => t);
+                if (array.length > 20) {
+                    return helpers.error('array.max');
+                }
+                return array;
+            })
+        )
         .default([])
         .messages({
             'array.max': 'Maximum 20 technologies allowed',
         }),
 
-    tags: Joi.array()
-        .items(Joi.string().trim().max(50))
-        .max(10)
+    tags: Joi.alternatives()
+        .try(
+            Joi.array().items(Joi.string().trim().max(50)).max(10),
+            Joi.string().custom((value, helpers) => {
+                // Allow comma-separated string as fallback
+                const array = value.split(',').map(t => t.trim()).filter(t => t);
+                if (array.length > 10) {
+                    return helpers.error('array.max');
+                }
+                return array;
+            })
+        )
         .default([])
         .messages({
             'array.max': 'Maximum 10 tags allowed',
@@ -60,12 +107,26 @@ const createProjectSchema = Joi.object({
             'string.max': 'Supervisor name must not exceed 100 characters',
         }),
 
-    year: Joi.number()
-        .integer()
-        .min(2000)
-        .max(new Date().getFullYear() + 1)
+    year: Joi.alternatives()
+        .try(
+            Joi.number().integer().min(2000).max(new Date().getFullYear() + 1),
+            Joi.string().custom((value, helpers) => {
+                const year = parseInt(value, 10);
+                if (isNaN(year)) {
+                    return helpers.error('number.base');
+                }
+                if (year < 2000) {
+                    return helpers.error('number.min', { limit: 2000 });
+                }
+                if (year > new Date().getFullYear() + 1) {
+                    return helpers.error('number.max', { limit: new Date().getFullYear() + 1 });
+                }
+                return year;
+            })
+        )
         .default(new Date().getFullYear())
         .messages({
+            'number.base': 'Year must be a valid number',
             'number.min': 'Year cannot be before 2000',
             'number.max': `Year cannot be after ${new Date().getFullYear() + 1}`,
         }),

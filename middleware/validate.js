@@ -19,6 +19,17 @@ const validate = (schema, property = 'body') => {
                 .map(detail => detail.message)
                 .join(', ');
 
+            // Log detailed error information for debugging
+            console.error('❌ Validation failed:', {
+                property,
+                errors: error.details.map(detail => ({
+                    field: detail.path.join('.'),
+                    message: detail.message,
+                    type: detail.type,
+                    value: detail.context?.value
+                }))
+            });
+
             return res.status(400).json({
                 success: false,
                 message: 'Validation error',
