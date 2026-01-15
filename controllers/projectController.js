@@ -2,6 +2,7 @@
 // Handles all project-related business logic
 const { getProjectsCollection, getUsersCollection, getNotificationsCollection, getActivitiesCollection, ObjectId } = require('../config/database');
 const Project = require('../models/Project');
+const { stripHtml, getPlainTextLength } = require('../utils/htmlStrip');
 
 /**
  * Get all projects with optional filters
@@ -201,6 +202,15 @@ exports.createProject = async (req, res) => {
         if (!req.body.abstract || typeof req.body.abstract !== 'string' || req.body.abstract.trim().length === 0) {
             return res.status(400).json({ message: 'Project abstract is required' });
         }
+
+        // Strip HTML tags and validate plain text length
+        const plainTextAbstract = stripHtml(req.body.abstract);
+        if (plainTextAbstract.length < 50) {
+            return res.status(400).json({
+                message: `Abstract must be at least 50 characters long. Current length: ${plainTextAbstract.length} characters`
+            });
+        }
+
         if (req.body.abstract.length > 5000) {
             return res.status(400).json({ message: 'Project abstract must be less than 5000 characters' });
         }

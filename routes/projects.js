@@ -4,6 +4,7 @@ const router = express.Router();
 const { verifyToken, optionalAuth } = require('../middleware/auth');
 const projectController = require('../controllers/projectController');
 const { validate } = require('../middleware/validate');
+const { preprocessFormData } = require('../middleware/preprocessFormData');
 const { createProjectSchema, updateProjectStatusSchema, projectQuerySchema, commentContentSchema } = require('../validators/projectValidator');
 const multer = require('multer');
 
@@ -25,7 +26,7 @@ const upload = multer({
 router.get('/', optionalAuth, validate(projectQuerySchema, 'query'), projectController.getAllProjects);
 router.get('/user/:userId', verifyToken, projectController.getUserProjects);
 router.get('/:id', optionalAuth, projectController.getProjectById);
-router.post('/', verifyToken, upload.single('pdf'), validate(createProjectSchema), projectController.createProject);
+router.post('/', verifyToken, upload.single('pdf'), preprocessFormData, validate(createProjectSchema), projectController.createProject);
 router.patch('/:id/status', verifyToken, validate(updateProjectStatusSchema), projectController.updateProjectStatus);
 router.delete('/:id', verifyToken, projectController.deleteProject);
 
