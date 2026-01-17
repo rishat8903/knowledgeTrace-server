@@ -24,8 +24,10 @@ class User {
     this.isAdmin = data.isAdmin || false; // Legacy, kept for backward compatibility
 
     // Supervisor-specific fields
+    this.designation = data.designation || ''; // Professor, Associate Professor, etc.
     this.researchAreas = data.researchAreas || []; // Research interests for matching
     this.maxStudents = data.maxStudents || null; // Optional limit on supervised students
+    this.officeHours = data.officeHours || ''; // Office hours for students
     this.supervisedProjects = data.supervisedProjects || []; // Array of project IDs
 
     this.createdAt = data.createdAt || new Date();
@@ -77,8 +79,10 @@ class User {
       socialLinks: this.socialLinks,
       role: this.role,
       isAdmin: this.isAdmin,
+      designation: this.designation,
       researchAreas: this.researchAreas,
       maxStudents: this.maxStudents,
+      officeHours: this.officeHours,
       supervisedProjects: this.supervisedProjects,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,

@@ -261,7 +261,41 @@ exports.createProject = async (req, res) => {
         const title = String(req.body.title).trim().substring(0, 200);
         const abstract = String(req.body.abstract).trim().substring(0, 5000);
         const author = req.body.author ? String(req.body.author).trim().substring(0, 100) : req.user.name || 'Anonymous';
-        const supervisor = req.body.supervisor ? String(req.body.supervisor).trim().substring(0, 100) : '';
+
+        // Handle supervisor - support both old (text) and new (ID) formats
+        let supervisor = '';
+        let supervisorId = '';
+        let supervisorDepartment = '';
+
+        if (req.body.supervisorId) {
+            // New format: supervisorId provided
+            supervisorId = String(req.body.supervisorId).trim();
+
+            // Validate supervisor exists and has supervisor role
+            const usersCollection = await getUsersCollection();
+            const supervisorUser = await usersCollection.findOne({
+                uid: supervisorId,
+                role: 'supervisor'
+            });
+
+            if (!supervisorUser) {
+                return res.status(400).json({
+                    message: 'Selected supervisor not found or invalid role'
+                });
+            }
+
+            // Store supervisor details for denormalization (performance)
+            supervisor = supervisorUser.name;
+            supervisorDepartment = supervisorUser.department || '';
+
+            console.log('✅ Supervisor validated:', supervisor, '(', supervisorId, ')');
+        } else if (req.body.supervisor) {
+            // Legacy format: supervisor name only (for backward compatibility)
+            supervisor = String(req.body.supervisor).trim().substring(0, 100);
+            supervisorId = ''; // No ID in legacy mode
+            console.log('⚠️ Legacy supervisor mode:', supervisor);
+        }
+
         const year = parseInt(req.body.year);
         const validatedYear = (!isNaN(year) && year >= 2000 && year <= new Date().getFullYear() + 1)
             ? year
@@ -291,7 +325,9 @@ exports.createProject = async (req, res) => {
             techStack,
             author,
             authorId: req.user.uid,
-            supervisor,
+            supervisor, // Denormalized name for display
+            supervisorId, // Reference to supervisor
+            supervisorDepartment, // Denormalized for filtering
             year: validatedYear,
             githubLink,
             pdfUrl,
@@ -1020,5 +1056,61 @@ exports.createNotification = async (notificationData) => {
     } catch (error) {
         console.error('Error creating notification:', error);
         // Don't throw - notifications are non-critical
+    }
+};
+
+/**
+ * View PDF - Proxy endpoint to serve PDFs with inline disposition
+ * GET /api/projects/:id/pdf/view
+ * Cloudinary raw resources force download, so we proxy them to allow inline viewing
+ */
+exports.viewPdf = async (req, res) => {
+    try {
+        const projectsCollection = await getProjectsCollection();
+
+        let project;
+        if (ObjectId.isValid(req.params.id)) {
+            project = await projectsCollection.findOne({ _id: new ObjectId(req.params.id) });
+        } else {
+            project = await projectsCollection.findOne({ _id: req.params.id });
+        }
+
+        if (!project) {
+            return res.status(404).json({ message: 'Project not found' });
+        }
+
+        if (!project.pdfUrl) {
+            return res.status(404).json({ message: 'PDF not found for this project' });
+        }
+
+        // Fetch PDF from Cloudinary
+        const https = require('https');
+        const http = require('http');
+        const url = require('url');
+
+        const pdfUrl = project.pdfUrl;
+        const parsedUrl = url.parse(pdfUrl);
+        const protocol = parsedUrl.protocol === 'https:' ? https : http;
+
+        protocol.get(pdfUrl, (cloudinaryResponse) => {
+            if (cloudinaryResponse.statusCode !== 200) {
+                return res.status(cloudinaryResponse.statusCode).json({
+                    message: 'Error fetching PDF from storage'
+                });
+            }
+
+            // Set headers for inline PDF viewing
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', 'inline');
+
+            // Pipe the PDF stream to response
+            cloudinaryResponse.pipe(res);
+        }).on('error', (error) => {
+            console.error('Error fetching PDF:', error);
+            res.status(500).json({ message: 'Error loading PDF' });
+        });
+    } catch (error) {
+        console.error('Error in viewPdf:', error);
+        res.status(500).json({ message: 'Error loading PDF' });
     }
 };

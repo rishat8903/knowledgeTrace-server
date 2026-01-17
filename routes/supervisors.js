@@ -1,8 +1,47 @@
 // Supervisor Routes
 const express = require('express');
 const router = express.Router();
-const { verifyToken, checkRole } = require('../middleware/auth');
+const { verifyToken, checkRole, optionalAuth } = require('../middleware/auth');
 const supervisorController = require('../controllers/supervisorController');
+
+// Public: Get all supervisors (for dropdown selector in project submission)
+router.get(
+    '/',
+    supervisorController.getAllSupervisors
+);
+
+// Public: Get supervisor profile with statistics
+router.get(
+    '/:id/profile',
+    supervisorController.getSupervisorProfile
+);
+
+// Protected: Get supervised students (supervisor only or admin)
+router.get(
+    '/:id/students',
+    verifyToken,
+    supervisorController.getStudents
+);
+
+// Public: Get supervised projects (with filters)
+router.get(
+    '/:id/projects',
+    supervisorController.getSupervisedProjects
+);
+
+// Protected: Get supervisor dashboard statistics
+router.get(
+    '/:id/stats',
+    verifyToken,
+    supervisorController.getStats
+);
+
+// Protected: Update supervisor profile
+router.patch(
+    '/:id/profile',
+    verifyToken,
+    supervisorController.updateProfile
+);
 
 // Student: Browse available supervisors with their work
 router.get(
@@ -45,3 +84,4 @@ router.patch(
 );
 
 module.exports = router;
+

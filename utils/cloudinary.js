@@ -26,10 +26,9 @@ const uploadToCloudinary = (buffer, filename) => {
 
     const uploadStream = cloudinary.uploader.upload_stream(
       {
-        resource_type: 'raw', // For PDF files
+        resource_type: 'raw', // PDFs must be 'raw' - 'auto' detects them as images which fails
         folder: 'knowledgetrace/projects',
         public_id: `${Date.now()}_${filename.replace(/\.[^/.]+$/, '')}`, // Unique filename with timestamp
-        // Don't specify format for raw resources - it's inferred from the file
         access_mode: 'public', // Ensure public access
         type: 'upload', // Default upload type
       },
@@ -66,8 +65,51 @@ const deleteFromCloudinary = async (publicId) => {
   }
 };
 
+/**
+ * Generate a download URL for a PDF with proper Cloudinary transformation
+ * This forces the browser to download the file instead of displaying it inline
+ * @param {string} pdfUrl - The original Cloudinary PDF URL
+ * @param {string} filename - Optional custom filename for the download
+ * @returns {string} - Download URL with fl_attachment transformation
+ */
+const getDownloadUrl = (pdfUrl, filename = 'document.pdf') => {
+  if (!pdfUrl || typeof pdfUrl !== 'string') {
+    return pdfUrl;
+  }
+
+  // If it's a placeholder URL, return as-is
+  if (pdfUrl.includes('placeholder')) {
+    return pdfUrl;
+  }
+
+  // Check if it's a Cloudinary URL
+  if (!pdfUrl.includes('cloudinary.com')) {
+    return pdfUrl;
+  }
+
+  // Sanitize filename - remove special characters and spaces
+  const sanitizedFilename = filename
+    .replace(/[^a-zA-Z0-9.-]/g, '_')
+    .replace(/\.pdf$/i, '') + '.pdf';
+
+  // Add Cloudinary transformation to force download with custom filename
+  // Pattern: https://res.cloudinary.com/[cloud]/[resource]/upload/[public_id]
+  // Transform to: https://res.cloudinary.com/[cloud]/[resource]/upload/fl_attachment:[filename]/[public_id]
+
+  const uploadIndex = pdfUrl.indexOf('/upload/');
+  if (uploadIndex === -1) {
+    return pdfUrl;
+  }
+
+  const beforeUpload = pdfUrl.substring(0, uploadIndex + 8); // includes '/upload/'
+  const afterUpload = pdfUrl.substring(uploadIndex + 8);
+
+  return `${beforeUpload}fl_attachment:${sanitizedFilename}/${afterUpload}`;
+};
+
 module.exports = {
   uploadToCloudinary,
   deleteFromCloudinary,
+  getDownloadUrl,
 };
 
