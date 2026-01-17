@@ -15,6 +15,21 @@ exports.getUserProfile = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
+        // Auto-fix role if it's missing or incorrect based on email domain
+        const facultyDomain = '@iiuc.ac.bd';
+        const studentDomain = '@ugrad.iiuc.ac.bd';
+        const isFacultyEmail = user.email?.endsWith(facultyDomain) && !user.email?.endsWith(studentDomain);
+
+        if (!user.role || (user.role === 'student' && isFacultyEmail)) {
+            const updatedRole = isFacultyEmail ? 'supervisor' : 'student';
+            await usersCollection.updateOne(
+                { uid: req.user.uid },
+                { $set: { role: updatedRole, updatedAt: new Date() } }
+            );
+            user.role = updatedRole; // Update local object for response
+            console.log(`✅ Corrected role for user ${user.email} to ${updatedRole}`);
+        }
+
         res.json(new User(user).toJSON());
     } catch (error) {
         console.error('Error fetching user profile:', error);
@@ -60,6 +75,26 @@ exports.createOrUpdateUser = async (req, res) => {
             uid: req.user.uid,
             updatedAt: new Date(),
         };
+
+        // Determine role: prioritize request body, then automatic detection from email
+        if (req.body.role) {
+            userData.role = req.body.role;
+        } else if (!existingUser) {
+            // Only auto-assign role for new users if not provided
+            if (req.user.email?.endsWith('@ugrad.iiuc.ac.bd')) {
+                userData.role = 'student';
+            } else if (req.user.email?.endsWith('@iiuc.ac.bd')) {
+                userData.role = 'supervisor';
+            } else {
+                userData.role = 'student'; // Fallback
+            }
+        } else if (existingUser) {
+            // Correct role for existing users if it's missing or if it's a supervisor email stuck as student
+            const isFacultyEmail = req.user.email?.endsWith('@iiuc.ac.bd') && !req.user.email?.endsWith('@ugrad.iiuc.ac.bd');
+            if (!existingUser.role || (existingUser.role === 'student' && isFacultyEmail)) {
+                userData.role = isFacultyEmail ? 'supervisor' : 'student';
+            }
+        }
 
         // Only include photoURL if provided and valid
         if (req.body.photoURL) {

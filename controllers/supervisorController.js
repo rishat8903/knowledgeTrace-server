@@ -408,19 +408,7 @@ const respondToRequest = async (req, res) => {
     }
 };
 
-module.exports = {
-    browseSupervisors,
-    sendRequest,
-    getMyRequests,
-    getPendingRequests,
-    respondToRequest,
-    getAllSupervisors,
-    getSupervisorProfile,
-    getStudents,
-    getSupervisedProjects,
-    getStats,
-    updateProfile
-};
+
 
 /**
  * Get all supervisors (for dropdown selector)
@@ -806,3 +794,17 @@ const updateProfile = async (req, res) => {
     }
 };
 
+// Export all functions at the end
+module.exports = {
+    browseSupervisors,
+    sendRequest,
+    getMyRequests,
+    getPendingRequests,
+    respondToRequest,
+    getAllSupervisors,
+    getSupervisorProfile,
+    getStudents,
+    getSupervisedProjects,
+    getStats,
+    updateProfile
+};
