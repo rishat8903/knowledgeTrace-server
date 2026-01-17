@@ -45,4 +45,8 @@ router.post('/:id/comments/:commentId/replies', verifyToken, validate(commentCon
 router.put('/:id/comments/:commentId/replies/:replyId', verifyToken, validate(commentContentSchema), projectController.editReply);
 router.delete('/:id/comments/:commentId/replies/:replyId', verifyToken, projectController.deleteReply);
 
+// PDF Proxy route - serves PDFs with proper headers for inline viewing
+// Cloudinary raw resources force download, so we proxy them to allow viewing
+router.get('/:id/pdf/view', projectController.viewPdf);
+
 module.exports = router;

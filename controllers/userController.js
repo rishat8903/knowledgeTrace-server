@@ -191,10 +191,15 @@ exports.updateUserProfile = async (req, res) => {
 /**
  * Get public user profile by ID (no authentication required)
  * GET /api/users/:id
+ * Enhanced version with statistics and role-specific data
  */
 exports.getPublicUserProfile = async (req, res) => {
     try {
+        const { getProjectsCollection } = require('../config/database');
+        const Project = require('../models/Project');
+
         const usersCollection = await getUsersCollection();
+        const projectsCollection = await getProjectsCollection();
         const { id } = req.params;
 
         // Find user by uid
@@ -204,18 +209,29 @@ exports.getPublicUserProfile = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Get user's approved projects (if needed later, for now just return user)
-        // We'll fetch projects on the frontend via getUserProjects endpoint
+        // Get user's projects based on role
+        const projectQuery = user.role === 'supervisor'
+            ? { supervisorId: id }
+            : { authorId: id };
 
-        // Sanitize user data (exclude sensitive information)
+        const projects = await projectsCollection
+            .find(projectQuery)
+            .sort({ createdAt: -1 })
+            .toArray();
+
+        // Calculate statistics
+        const totalViews = projects.reduce((sum, p) => sum + (p.views || 0), 0);
+        const totalLikes = projects.reduce((sum, p) => sum + (p.likeCount || 0), 0);
+
+        // Build public profile (hide sensitive data like phone, address, etc.)
         const publicUserData = {
             uid: user.uid,
             name: user.name || user.displayName,
             displayName: user.displayName || user.name,
+            email: user.email, // Email is public in academic context
             photoURL: user.photoURL,
             department: user.department,
-            year: user.year,
-            skills: Array.isArray(user.skills) ? user.skills : (user.skills ? user.skills.split(',').map(s => s.trim()) : []),
+            role: user.role,
             bio: user.bio || '',
             headline: user.headline || '',
             socialLinks: user.socialLinks || {
@@ -223,19 +239,43 @@ exports.getPublicUserProfile = async (req, res) => {
                 linkedin: user.linkedin || '',
                 website: user.website || ''
             },
-            github: user.github || '', // Keep for backward compatibility
-            linkedin: user.linkedin || '', // Keep for backward compatibility
-            createdAt: user.createdAt,
-            // Explicitly exclude email, isAdmin, etc.
+            createdAt: user.createdAt
         };
+
+        // Add role-specific fields
+        if (user.role === 'student') {
+            publicUserData.year = user.year;
+            publicUserData.skills = Array.isArray(user.skills)
+                ? user.skills
+                : (user.skills ? user.skills.split(',').map(s => s.trim()) : []);
+            publicUserData.stats = {
+                projectCount: projects.length,
+                totalViews: totalViews,
+                totalLikes: totalLikes
+            };
+            publicUserData.projects = projects.map(p => new Project(p).toJSON());
+        } else if (user.role === 'supervisor') {
+            publicUserData.designation = user.designation;
+            publicUserData.researchAreas = user.researchAreas || [];
+            publicUserData.officeHours = user.officeHours;
+            publicUserData.stats = {
+                supervisedCount: projects.length,
+                activeProjects: projects.filter(p => ['pending', 'approved'].includes(p.status)).length,
+                completedProjects: projects.filter(p => p.status === 'completed').length
+            };
+            publicUserData.recentProjects = projects.slice(0, 10).map(p => new Project(p).toJSON());
+        }
 
         res.json({
             success: true,
-            user: publicUserData,
+            profile: publicUserData,
         });
     } catch (error) {
         console.error('Error fetching public user profile:', error);
-        res.status(500).json({ message: 'Error fetching user profile' });
+        res.status(500).json({
+            message: 'Error fetching user profile',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
