@@ -40,7 +40,8 @@ class User {
    * @returns {boolean}
    */
   static validateEmail(email) {
-    const allowedDomains = ['@ugrad.iiuc.ac.bd'];
+    // Allow both student and supervisor domains
+    const allowedDomains = ['@ugrad.iiuc.ac.bd', '@iiuc.ac.bd'];
     return allowedDomains.some(domain => email.toLowerCase().endsWith(domain));
   }
 

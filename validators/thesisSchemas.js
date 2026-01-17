@@ -8,9 +8,13 @@ const objectIdPattern = /^[0-9a-fA-F]{24}$/;
 const userRegistrationSchema = Joi.object({
     uid: Joi.string().required(),
     email: Joi.string().email().required().custom((value, helpers) => {
-        if (!value.endsWith('@ugrad.iiuc.ac.bd')) {
+        // Allow both student and supervisor domains
+        const isStudent = value.endsWith('@ugrad.iiuc.ac.bd');
+        const isSupervisor = value.endsWith('@iiuc.ac.bd');
+
+        if (!isStudent && !isSupervisor) {
             return helpers.error('any.invalid', {
-                message: 'Email must be from @ugrad.iiuc.ac.bd domain'
+                message: 'Email must be from @ugrad.iiuc.ac.bd (students) or @iiuc.ac.bd (supervisors)'
             });
         }
         return value;
