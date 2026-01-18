@@ -172,6 +172,11 @@ app.use('/api/users', (req, res, next) => {
   if (req.method === 'GET' && req.path === '/profile') {
     return next(); // Use general rate limit (200 requests per 15 min)
   }
+  // POST /users for registration - allow more requests for legitimate signups
+  if (req.method === 'POST' && req.path === '/') {
+    const signupRateLimit = rateLimit(15 * 60 * 1000, isDevelopment ? 100 : 50);
+    return signupRateLimit(req, res, next);
+  }
   // Other user routes use stricter rate limiting
   return authRateLimit(req, res, next);
 }, userRoutes);

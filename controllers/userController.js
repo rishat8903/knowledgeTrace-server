@@ -68,6 +68,7 @@ exports.createOrUpdateUser = async (req, res) => {
             console.log(`✅ University email validated: ${req.user.email}`);
         }
 
+
         // Ensure required fields
         const userData = {
             name: String(name).trim().substring(0, 100),
@@ -77,24 +78,46 @@ exports.createOrUpdateUser = async (req, res) => {
         };
 
         // Determine role: prioritize request body, then automatic detection from email
+        // ALWAYS set a role - no user should be created without one
         if (req.body.role) {
+            console.log(`✅ Role provided in request body: ${req.body.role}`);
             userData.role = req.body.role;
         } else if (!existingUser) {
-            // Only auto-assign role for new users if not provided
+            // Auto-assign role for new users based on email domain
             if (req.user.email?.endsWith('@ugrad.iiuc.ac.bd')) {
                 userData.role = 'student';
+                console.log(`✅ Auto-assigned role 'student' for @ugrad.iiuc.ac.bd email`);
             } else if (req.user.email?.endsWith('@iiuc.ac.bd')) {
                 userData.role = 'supervisor';
+                console.log(`✅ Auto-assigned role 'supervisor' for @iiuc.ac.bd email`);
             } else {
                 userData.role = 'student'; // Fallback
+                console.log(`⚠️  Fallback role 'student' assigned for non-university email`);
             }
-        } else if (existingUser) {
-            // Correct role for existing users if it's missing or if it's a supervisor email stuck as student
-            const isFacultyEmail = req.user.email?.endsWith('@iiuc.ac.bd') && !req.user.email?.endsWith('@ugrad.iiuc.ac.bd');
-            if (!existingUser.role || (existingUser.role === 'student' && isFacultyEmail)) {
+        } else {
+            // For existing users, correct role if needed
+            const isFacultyEmail = req.user.email?.endsWith('@iiuc.ac.bd')
+                && !req.user.email?.endsWith('@ugrad.iiuc.ac.bd');
+
+            if (!existingUser.role) {
+                // User has no role - assign based on email
                 userData.role = isFacultyEmail ? 'supervisor' : 'student';
+                console.log(`✅ Correcting missing role to '${userData.role}' for existing user`);
+            } else if (existingUser.role === 'student' && isFacultyEmail) {
+                // Supervisor email stuck as student - correct it
+                userData.role = 'supervisor';
+                console.log(`✅ Correcting student role to supervisor for faculty email`);
+            } else {
+                // Keep existing role
+                userData.role = existingUser.role;
             }
         }
+
+        console.log(`📝 Final user data for ${existingUser ? 'UPDATE' : 'CREATE'}:`, {
+            email: userData.email,
+            role: userData.role,
+            name: userData.name
+        });
 
         // Only include photoURL if provided and valid
         if (req.body.photoURL) {
@@ -111,18 +134,22 @@ exports.createOrUpdateUser = async (req, res) => {
 
         if (existingUser) {
             // Update existing user
+            console.log(`🔄 Updating user ${userData.email} with role: ${userData.role}`);
             await usersCollection.updateOne(
                 { uid: req.user.uid },
                 { $set: userData }
             );
             const updatedUser = await usersCollection.findOne({ uid: req.user.uid });
+            console.log(`✅ User updated. Current role in DB: ${updatedUser.role}`);
             res.json({ message: 'User profile updated', user: new User(updatedUser).toJSON() });
         } else {
             // Create new user
             userData.createdAt = new Date();
             userData.isAdmin = false; // Default to non-admin
+            console.log(`➕ Creating new user ${userData.email} with role: ${userData.role}`);
             const result = await usersCollection.insertOne(userData);
             const newUser = await usersCollection.findOne({ _id: result.insertedId });
+            console.log(`✅ User created. Role in DB: ${newUser.role}`);
             res.status(201).json({ message: 'User profile created', user: new User(newUser).toJSON() });
         }
     } catch (error) {
@@ -241,7 +268,11 @@ exports.getPublicUserProfile = async (req, res) => {
         const user = await usersCollection.findOne({ uid: id });
 
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            console.log(`⚠️ Profile request for non-existent user: ${id}`);
+            return res.status(404).json({
+                message: 'User profile not found',
+                suggestion: 'This user may not have created an account yet'
+            });
         }
 
         // Get user's projects based on role
