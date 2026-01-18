@@ -337,44 +337,23 @@ exports.createProject = async (req, res) => {
             updatedAt: new Date(),
         };
 
-        console.log('📝 Submitting project:', {
-            title: projectData.title,
-            author: projectData.author,
-            authorId: projectData.authorId,
-            status: projectData.status
-        });
-
         // Verify database connection before insert
         const { isConnected } = require('../config/database');
         if (!isConnected()) {
-            console.error('❌ Database not connected!');
             return res.status(500).json({ message: 'Database connection error. Please try again.' });
         }
 
-        console.log('💾 Inserting project into MongoDB...');
         const result = await projectsCollection.insertOne(projectData);
-        console.log('✅ Insert result:', {
-            acknowledged: result.acknowledged,
-            insertedId: result.insertedId
-        });
 
         if (!result.acknowledged) {
-            console.error('❌ Insert was not acknowledged by MongoDB');
             return res.status(500).json({ message: 'Failed to save project to database' });
         }
 
         const project = await projectsCollection.findOne({ _id: result.insertedId });
 
         if (!project) {
-            console.error('❌ Failed to retrieve inserted project');
             return res.status(500).json({ message: 'Project created but could not be retrieved' });
         }
-
-        console.log('✅ Project created successfully:', {
-            id: project._id,
-            title: project.title,
-            status: project.status
-        });
 
         res.status(201).json({ message: 'Project submitted successfully', project: new Project(project).toJSON() });
     } catch (error) {

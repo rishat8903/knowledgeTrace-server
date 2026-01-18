@@ -546,8 +546,12 @@ const getStudents = async (req, res) => {
     try {
         const { id } = req.params;
 
+        console.log(`🔍 getStudents called for supervisor: ${id}`);
+        console.log(`🔍 Request user: ${req.user?.uid}, role: ${req.user?.role}`);
+
         // Verify supervisor exists and user has permission
         if (req.user.uid !== id && !req.user.isAdmin && req.user.role !== 'supervisor') {
+            console.log('❌ Access denied - permission check failed');
             return res.status(403).json({ message: 'Access denied' });
         }
 
@@ -559,8 +563,12 @@ const getStudents = async (req, res) => {
             .find({ supervisorId: id })
             .toArray();
 
+        console.log(`✅ Found ${projects.length} projects for supervisor ${id}`);
+
         // Extract unique student IDs
         const studentIds = [...new Set(projects.map(p => p.authorId).filter(Boolean))];
+
+        console.log(`✅ Found ${studentIds.length} unique students:`, studentIds);
 
         // Get student details
         const students = await usersCollection
@@ -589,12 +597,14 @@ const getStudents = async (req, res) => {
             };
         });
 
+        console.log(`✅ Returning ${studentsWithProjects.length} students with project details`);
+
         res.json({
             success: true,
             students: studentsWithProjects
         });
     } catch (error) {
-        console.error('Error fetching students:', error);
+        console.error('❌ Error fetching students:', error);
         res.status(500).json({
             message: 'Error fetching students',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -664,6 +674,8 @@ const getStats = async (req, res) => {
     try {
         const { id } = req.params;
 
+        console.log(`📊 getStats called for supervisor: ${id}`);
+
         // Verify user has permission
         if (req.user.uid !== id && !req.user.isAdmin) {
             return res.status(403).json({ message: 'Access denied' });
@@ -677,8 +689,13 @@ const getStats = async (req, res) => {
             .find({ supervisorId: id })
             .toArray();
 
+        console.log(`📊 Found ${projects.length} projects for stats`);
+
         // Get unique students
         const studentIds = [...new Set(projects.map(p => p.authorId).filter(Boolean))];
+
+        console.log(`📊 Calculated ${studentIds.length} unique students from projects`);
+        console.log(`📊 Student IDs:`, studentIds);
 
         // Calculate statistics
         const stats = {
@@ -720,6 +737,8 @@ const getStats = async (req, res) => {
                 timestamp: project.createdAt
             });
         }
+
+        console.log(`📊 Returning stats: ${stats.totalStudents} students, ${stats.totalProjects} projects`);
 
         res.json({
             success: true,
