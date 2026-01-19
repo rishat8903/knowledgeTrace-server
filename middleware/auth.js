@@ -4,19 +4,21 @@ const admin = require('firebase-admin');
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
   try {
-    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
-      : null;
-
-    if (serviceAccount) {
+    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    if (serviceAccountKey) {
+      const serviceAccount = JSON.parse(serviceAccountKey);
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
+      console.log('✅ Firebase Admin initialized successfully');
     } else {
-      console.warn('Firebase Admin not initialized. Set FIREBASE_SERVICE_ACCOUNT_KEY in .env');
+      console.warn('⚠️ Firebase Admin not initialized. Set FIREBASE_SERVICE_ACCOUNT_KEY in .env');
     }
   } catch (error) {
-    console.error('Firebase Admin initialization error:', error);
+    console.error('❌ Firebase Admin initialization error:', error.message);
+    if (error.message.includes('Unexpected token')) {
+      console.error('💡 Tip: Check if FIREBASE_SERVICE_ACCOUNT_KEY in .env is a valid single-line JSON string.');
+    }
   }
 }
 
@@ -50,8 +52,8 @@ const verifyToken = async (req, res, next) => {
           code: 'CONFIG_ERROR'
         });
       }
-      console.warn('Firebase Admin not configured, skipping token verification (DEV MODE)');
-      req.user = { uid: 'dev-user', email: 'dev@example.com', name: 'Dev User' };
+      console.warn('⚠️ Firebase Admin not configured, skipping token verification (DEV MODE)');
+      req.user = { uid: 'dev-user', email: 'test-student@ugrad.iiuc.ac.bd', name: 'Dev User' };
       return next();
     }
 

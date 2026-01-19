@@ -12,6 +12,11 @@ const { workflowReviewSchema, projectCommentSchema } = require('../validators/th
 const Project = require('../models/Project');
 const ProjectMilestone = require('../models/ProjectMilestone');
 const ProjectComment = require('../models/ProjectComment');
+const {
+    createNotification,
+    createProjectStatusUpdateNotification,
+    createSupervisorRequestNotification
+} = require('../utils/notificationHelper');
 
 /**
  * Get all pending approvals for supervisor
@@ -127,6 +132,22 @@ const submitProposal = async (req, res) => {
 
         await milestonesCollection.insertOne(milestone.toJSON());
 
+        // Send notification to supervisor
+        try {
+            const usersCollection = await getUsersCollection();
+            const student = await usersCollection.findOne({ uid: studentUid });
+
+            await createSupervisorRequestNotification(
+                project.supervisorId,
+                studentUid,
+                student?.name || student?.displayName || 'A student',
+                project.title,
+                project._id
+            );
+        } catch (notifError) {
+            console.warn('Could not send supervisor notification:', notifError.message);
+        }
+
         res.json({
             success: true,
             message: 'Proposal submitted successfully',
@@ -223,7 +244,17 @@ const reviewProject = async (req, res) => {
             }
         );
 
-        // TODO: Send notification to student
+        // Send notification to student
+        try {
+            await createProjectStatusUpdateNotification(
+                project.authorId,
+                project.title,
+                newStatus,
+                project._id
+            );
+        } catch (notifError) {
+            console.warn('Could not send student notification:', notifError.message);
+        }
 
         res.json({
             success: true,
@@ -406,6 +437,18 @@ const advancePhase = async (req, res) => {
                 }
             }
         );
+
+        // Send notification to student
+        try {
+            await createProjectStatusUpdateNotification(
+                project.authorId,
+                project.title,
+                newPhase,
+                project._id
+            );
+        } catch (notifError) {
+            console.warn('Could not send student notification:', notifError.message);
+        }
 
         res.json({
             success: true,
