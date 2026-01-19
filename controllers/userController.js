@@ -99,10 +99,13 @@ exports.createOrUpdateUser = async (req, res) => {
             const isFacultyEmail = req.user.email?.endsWith('@iiuc.ac.bd')
                 && !req.user.email?.endsWith('@ugrad.iiuc.ac.bd');
 
-            if (!existingUser.role) {
+            if (existingUser.isAdmin === true) {
+                userData.role = 'admin';
+                console.log(`✅ User is admin, setting role to 'admin'`);
+            } else if (!existingUser.role) {
                 // User has no role - assign based on email
                 userData.role = isFacultyEmail ? 'supervisor' : 'student';
-                console.log(`✅ Correcting missing role to '${userData.role}' for existing user`);
+                console.log(`✅ Assigning role '${userData.role}' based on email`);
             } else if (existingUser.role === 'student' && isFacultyEmail) {
                 // Supervisor email stuck as student - correct it
                 userData.role = 'supervisor';

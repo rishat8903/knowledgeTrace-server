@@ -27,6 +27,7 @@ router.get('/', optionalAuth, validate(projectQuerySchema, 'query'), projectCont
 router.get('/user/:userId', verifyToken, projectController.getUserProjects);
 router.get('/:id', optionalAuth, projectController.getProjectById);
 router.post('/', verifyToken, upload.single('pdf'), preprocessFormData, validate(createProjectSchema), projectController.createProject);
+router.put('/:id', verifyToken, projectController.updateProject);
 router.patch('/:id/status', verifyToken, validate(updateProjectStatusSchema), projectController.updateProjectStatus);
 router.delete('/:id', verifyToken, projectController.deleteProject);
 

@@ -12,6 +12,7 @@ const { findMatchingStudents, groupByMatchLevel } = require('../utils/teamMatchi
 const { teamInvitationSchema, teamResponseSchema } = require('../validators/thesisSchemas');
 const TeamMember = require('../models/TeamMember');
 const TeamMatchSuggestion = require('../models/TeamMatchSuggestion');
+const { createTeamInvitationNotification } = require('../utils/notificationHelper');
 
 /**
  * Find matching students for a project based on required skills
@@ -153,7 +154,21 @@ const inviteToTeam = async (req, res) => {
 
         const result = await teamMembersCollection.insertOne(teamMember.toJSON());
 
-        // TODO: Send notification to invited user
+        // Send notification to invited user
+        try {
+            const usersCollection = await getUsersCollection();
+            const inviter = await usersCollection.findOne({ uid: inviterUid });
+
+            await createTeamInvitationNotification(
+                userId,
+                inviterUid,
+                inviter?.name || inviter?.displayName || 'A student',
+                project.title,
+                project._id
+            );
+        } catch (notifError) {
+            console.warn('Could not send team invitation notification:', notifError.message);
+        }
 
         res.json({
             success: true,

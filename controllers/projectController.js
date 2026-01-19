@@ -3,6 +3,11 @@
 const { getProjectsCollection, getUsersCollection, getNotificationsCollection, getActivitiesCollection, ObjectId } = require('../config/database');
 const Project = require('../models/Project');
 const { stripHtml, getPlainTextLength } = require('../utils/htmlStrip');
+const {
+    createNotification,
+    createProjectSubmissionNotification,
+    createProjectStatusUpdateNotification
+} = require('../utils/notificationHelper');
 
 /**
  * Get all projects with optional filters
@@ -355,6 +360,18 @@ exports.createProject = async (req, res) => {
             return res.status(500).json({ message: 'Project created but could not be retrieved' });
         }
 
+        // Create notification for admin
+        try {
+            await createProjectSubmissionNotification(
+                req.user.uid,
+                project.author || req.user.name || req.user.displayName || 'A student',
+                project.title,
+                project._id
+            );
+        } catch (notifError) {
+            console.warn('Could not send admin notification:', notifError.message);
+        }
+
         res.status(201).json({ message: 'Project submitted successfully', project: new Project(project).toJSON() });
     } catch (error) {
         console.error('Error submitting project:', error);
@@ -401,10 +418,94 @@ exports.updateProjectStatus = async (req, res) => {
         );
 
         const updatedProject = await projectsCollection.findOne({ _id: project._id });
+
+        // Create notification for student
+        if (status !== 'pending') { // Only notify if status changed to approved/rejected
+            try {
+                await createProjectStatusUpdateNotification(
+                    project.authorId,
+                    project.title,
+                    status,
+                    project._id
+                );
+            } catch (notifError) {
+                console.warn('Could not send student notification:', notifError.message);
+            }
+        }
+
         res.json({ message: 'Project status updated', project: new Project(updatedProject).toJSON() });
     } catch (error) {
         console.error('Error updating project status:', error);
         res.status(500).json({ message: 'Error updating project status' });
+    }
+};
+
+/**
+ * Update project details (owner or admin)
+ */
+exports.updateProject = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const projectsCollection = await getProjectsCollection();
+        const usersCollection = await getUsersCollection();
+
+        // Check if user is admin
+        const user = await usersCollection.findOne({ uid: req.user.uid });
+        const isAdmin = user?.isAdmin || false;
+
+        let project;
+        if (ObjectId.isValid(id)) {
+            project = await projectsCollection.findOne({ _id: new ObjectId(id) });
+        } else {
+            project = await projectsCollection.findOne({ _id: id });
+        }
+
+        if (!project) {
+            return res.status(404).json({ message: 'Project not found' });
+        }
+
+        // Check if user is admin or project owner
+        if (!isAdmin && project.authorId !== req.user.uid) {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        // Sanitize and validate input
+        const updateData = { updatedAt: new Date() };
+
+        if (req.body.title) updateData.title = String(req.body.title).trim().substring(0, 200);
+        if (req.body.abstract) updateData.abstract = String(req.body.abstract).trim().substring(0, 5000);
+        if (req.body.techStack) {
+            let techStack = req.body.techStack;
+            if (typeof techStack === 'string') {
+                try { techStack = JSON.parse(techStack); }
+                catch { techStack = techStack.split(',').map(t => t.trim()); }
+            }
+            if (Array.isArray(techStack)) updateData.techStack = techStack.slice(0, 20);
+        }
+        if (req.body.tags) {
+            let tags = req.body.tags;
+            if (typeof tags === 'string') {
+                try { tags = JSON.parse(tags); }
+                catch { tags = tags.split(',').map(t => t.trim()); }
+            }
+            if (Array.isArray(tags)) updateData.tags = tags.slice(0, 10);
+        }
+        if (req.body.year) {
+            const year = parseInt(req.body.year);
+            if (!isNaN(year)) updateData.year = year;
+        }
+        if (req.body.githubLink) updateData.githubLink = String(req.body.githubLink).trim().substring(0, 500);
+
+        await projectsCollection.updateOne(
+            { _id: project._id },
+            { $set: updateData }
+        );
+
+        const updatedProject = await projectsCollection.findOne({ _id: project._id });
+        res.json({ message: 'Project updated successfully', project: new Project(updatedProject).toJSON() });
+    } catch (error) {
+        console.error('Error updating project:', error);
+        res.status(500).json({ message: 'Error updating project details' });
     }
 };
 
@@ -487,10 +588,10 @@ exports.toggleLike = async (req, res) => {
 
             // Create notification for project author (if not self-like)
             if (project.authorId && project.authorId !== userId) {
-                await exports.createNotification({
-                    userId: project.authorId,
+                await createNotification({
+                    recipientId: project.authorId,
                     type: 'like',
-                    relatedUserId: userId,
+                    senderId: userId,
                     projectId: project._id,
                     projectTitle: project.title,
                     message: 'liked your project'
@@ -685,10 +786,10 @@ exports.addComment = async (req, res) => {
 
         // Create notification for project author (if not self-comment)
         if (project.authorId && project.authorId !== userId) {
-            await exports.createNotification({
-                userId: project.authorId,
+            await createNotification({
+                recipientId: project.authorId,
                 type: 'comment',
-                relatedUserId: userId,
+                senderId: userId,
                 projectId: project._id,
                 projectTitle: project.title,
                 commentId: comment._id,
@@ -864,10 +965,10 @@ exports.addReply = async (req, res) => {
         // Create notification for comment author (if not self-reply)
         const comment = comments[commentIndex];
         if (comment.userId && comment.userId !== userId) {
-            await exports.createNotification({
-                userId: comment.userId,
+            await createNotification({
+                recipientId: comment.userId,
                 type: 'reply',
-                relatedUserId: userId,
+                senderId: userId,
                 projectId: project._id,
                 projectTitle: project.title,
                 commentId: comment._id,
@@ -1008,35 +1109,7 @@ exports.deleteReply = async (req, res) => {
     }
 };
 
-// Export helper function for creating notifications (used by other controllers)
-exports.createNotification = async (notificationData) => {
-    try {
-        const notificationsCollection = await getNotificationsCollection();
-        const usersCollection = await getUsersCollection();
 
-        // Get user info for notification
-        const relatedUser = await usersCollection.findOne({ uid: notificationData.relatedUserId });
-
-        const notification = {
-            userId: notificationData.userId,
-            type: notificationData.type,
-            relatedUserId: notificationData.relatedUserId,
-            relatedUserName: relatedUser?.name || relatedUser?.displayName || 'Someone',
-            relatedUserPhotoURL: relatedUser?.photoURL || '',
-            projectId: notificationData.projectId,
-            projectTitle: notificationData.projectTitle || '',
-            commentId: notificationData.commentId || null,
-            message: notificationData.message || '',
-            read: false,
-            createdAt: new Date(),
-        };
-
-        await notificationsCollection.insertOne(notification);
-    } catch (error) {
-        console.error('Error creating notification:', error);
-        // Don't throw - notifications are non-critical
-    }
-};
 
 /**
  * View PDF - Proxy endpoint to serve PDFs with inline disposition

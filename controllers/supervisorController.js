@@ -9,6 +9,10 @@ const {
 } = require('../config/database');
 const { supervisorRequestSchema, supervisorResponseSchema } = require('../validators/thesisSchemas');
 const SupervisorRequest = require('../models/SupervisorRequest');
+const {
+    createSupervisorRequestNotification,
+    createSupervisorResponseNotification
+} = require('../utils/notificationHelper');
 
 /**
  * Browse available supervisors with their research areas and projects
@@ -173,7 +177,26 @@ const sendRequest = async (req, res) => {
 
         const result = await requestsCollection.insertOne(request.toJSON());
 
-        // TODO: Send notification to supervisor
+        // Send notification to supervisor
+        try {
+            const student = await usersCollection.findOne({ uid: studentUid });
+            let projectTitle = null;
+            if (projectId) {
+                const projectsCollection = await getProjectsCollection();
+                const project = await projectsCollection.findOne({ _id: new ObjectId(projectId) });
+                projectTitle = project?.title;
+            }
+
+            await createSupervisorRequestNotification(
+                supervisorId,
+                studentUid,
+                student?.name || student?.displayName || 'A student',
+                projectTitle,
+                projectId
+            );
+        } catch (notifError) {
+            console.warn('Could not send supervisor notification:', notifError.message);
+        }
 
         res.json({
             success: true,
@@ -392,7 +415,28 @@ const respondToRequest = async (req, res) => {
             );
         }
 
-        // TODO: Send notification to student
+        // Send notification to student
+        try {
+            const usersCollection = await getUsersCollection();
+            const supervisor = await usersCollection.findOne({ uid: supervisorUid });
+            let projectTitle = null;
+            if (request.projectId) {
+                const projectsCollection = await getProjectsCollection();
+                const project = await projectsCollection.findOne({ _id: new ObjectId(request.projectId) });
+                projectTitle = project?.title;
+            }
+
+            await createSupervisorResponseNotification(
+                request.studentId,
+                supervisorUid,
+                supervisor?.name || supervisor?.displayName || 'Supervisor',
+                newStatus,
+                projectTitle,
+                request.projectId
+            );
+        } catch (notifError) {
+            console.warn('Could not send student notification:', notifError.message);
+        }
 
         res.json({
             success: true,

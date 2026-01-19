@@ -41,9 +41,9 @@ const searchTheses = async (req, res) => {
 
         // Build search filter
         const filter = {
-            // Only show public and completed theses in vault
+            // Show public and finished/approved theses in vault
             visibility: 'public',
-            status: { $in: ['completed', 'archived'] }
+            status: { $in: ['approved', 'completed', 'archived'] }
         };
 
         // Text search on title, abstract, tags
