@@ -16,6 +16,21 @@ const createUserSchema = Joi.object({
             'string.max': 'Name must not exceed 100 characters',
         }),
 
+    email: Joi.string()
+        .email()
+        .required()
+        .messages({
+            'string.email': 'Invalid email format',
+            'string.empty': 'Email is required',
+        }),
+
+    role: Joi.string()
+        .valid('student', 'supervisor')
+        .optional()
+        .messages({
+            'any.only': 'Role must be either "student" or "supervisor"',
+        }),
+
     photoURL: Joi.string()
         .uri()
         .max(500)
