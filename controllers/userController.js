@@ -337,7 +337,7 @@ exports.getPublicUserProfile = async (req, res) => {
 
         res.json({
             success: true,
-            profile: publicUserData,
+            user: publicUserData,
         });
     } catch (error) {
         console.error('Error fetching public user profile:', error);

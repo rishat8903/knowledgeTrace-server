@@ -24,3 +24,20 @@ build/
 
 # Service account
 *service-account*.json
+
+# Debug & Temporary Files
+diag*.txt
+diagnose*.js
+fix-*.js
+test-*.js
+check-*.js
+tmp_*.txt
+*_dump.json
+*.tmp
+*.temp
+debug*.js
+debug*.txt
+
+# Scripts in root (only allow scripts/ folder)
+/*.js
+!index.js
