@@ -11,6 +11,7 @@ const {
 const { findMatchingStudents, groupByMatchLevel } = require('../utils/teamMatching');
 const { teamInvitationSchema, teamResponseSchema } = require('../validators/thesisSchemas');
 const TeamMember = require('../models/TeamMember');
+const logger = require('../config/logger');
 const TeamMatchSuggestion = require('../models/TeamMatchSuggestion');
 const { createTeamInvitationNotification } = require('../utils/notificationHelper');
 
@@ -94,9 +95,10 @@ const findMatchingStudentsForProject = async (req, res) => {
             groupedByLevel: groupedMatches
         });
     } catch (error) {
-        console.error('Error finding matching students:', error);
+        logger.error('Error finding matching students:', { error: error.message, projectId: req.params.projectId });
         res.status(500).json({
             message: 'Error finding matching students',
+            code: 'MATCH_STUDENTS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -167,7 +169,7 @@ const inviteToTeam = async (req, res) => {
                 project._id
             );
         } catch (notifError) {
-            console.warn('Could not send team invitation notification:', notifError.message);
+            logger.warn('Could not send team invitation notification:', { error: notifError.message, userId, projectId });
         }
 
         res.json({
@@ -179,9 +181,10 @@ const inviteToTeam = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error sending invitation:', error);
+        logger.error('Error sending team invitation:', { error: error.message, uid: req.user.uid });
         res.status(500).json({
             message: 'Error sending team invitation',
+            code: 'SEND_INVITATION_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -263,9 +266,10 @@ const respondToInvitation = async (req, res) => {
             });
         }
     } catch (error) {
-        console.error('Error responding to invitation:', error);
+        logger.error('Error responding to invitation:', { error: error.message, inviteId: req.params.inviteId });
         res.status(500).json({
             message: 'Error responding to invitation',
+            code: 'RESPOND_INVITATION_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -312,9 +316,10 @@ const getMyTeams = async (req, res) => {
             teams
         });
     } catch (error) {
-        console.error('Error fetching user teams:', error);
+        logger.error('Error fetching user teams:', { error: error.message, uid: req.user.uid });
         res.status(500).json({
             message: 'Error fetching your teams',
+            code: 'FETCH_TEAMS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -375,9 +380,10 @@ const leaveTeam = async (req, res) => {
             message: 'You have left the team'
         });
     } catch (error) {
-        console.error('Error leaving team:', error);
+        logger.error('Error leaving team:', { error: error.message, teamId: req.params.teamId, uid: req.user.uid });
         res.status(500).json({
             message: 'Error leaving team',
+            code: 'LEAVE_TEAM_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }

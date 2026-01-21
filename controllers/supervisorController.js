@@ -7,6 +7,7 @@ const {
     getSupervisorRequestsCollection,
     ObjectId
 } = require('../config/database');
+const logger = require('../config/logger');
 const { supervisorRequestSchema, supervisorResponseSchema } = require('../validators/thesisSchemas');
 const SupervisorRequest = require('../models/SupervisorRequest');
 const {
@@ -87,9 +88,10 @@ const browseSupervisors = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error browsing supervisors:', error);
+        logger.error('Error browsing supervisors:', { error: error.message });
         res.status(500).json({
             message: 'Error fetching supervisors',
+            code: 'FETCH_SUPERVISORS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -195,7 +197,7 @@ const sendRequest = async (req, res) => {
                 projectId
             );
         } catch (notifError) {
-            console.warn('Could not send supervisor notification:', notifError.message);
+            logger.warn('Could not send supervisor notification:', { error: notifError.message });
         }
 
         res.json({
@@ -207,9 +209,10 @@ const sendRequest = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error sending request:', error);
+        logger.error('Error sending supervisor request:', { error: error.message, studentId: req.user?.uid });
         res.status(500).json({
             message: 'Error sending collaboration request',
+            code: 'SEND_REQUEST_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -257,9 +260,10 @@ const getMyRequests = async (req, res) => {
             requests: enrichedRequests
         });
     } catch (error) {
-        console.error('Error fetching student requests:', error);
+        logger.error('Error fetching my requests:', { error: error.message, uid: req.user?.uid });
         res.status(500).json({
             message: 'Error fetching your requests',
+            code: 'FETCH_MY_REQUESTS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -330,9 +334,10 @@ const getPendingRequests = async (req, res) => {
             requests: enrichedRequests
         });
     } catch (error) {
-        console.error('Error fetching pending requests:', error);
+        logger.error('Error fetching pending requests:', { error: error.message, uid: req.user?.uid });
         res.status(500).json({
             message: 'Error fetching pending requests',
+            code: 'FETCH_PENDING_REQUESTS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -395,18 +400,22 @@ const respondToRequest = async (req, res) => {
         // If approved and projectId exists, assign supervisor to project
         if (action === 'approve' && request.projectId) {
             const projectsCollection = await getProjectsCollection();
+            const usersCollection = await getUsersCollection();
+            const supervisor = await usersCollection.findOne({ uid: supervisorUid });
+
             await projectsCollection.updateOne(
                 { _id: new ObjectId(request.projectId) },
                 {
                     $set: {
                         supervisorId: supervisorUid,
+                        supervisor: supervisor?.name || '',
+                        supervisorDepartment: supervisor?.department || '',
                         updatedAt: new Date()
                     }
                 }
             );
 
             // Add project to supervisor's supervisedProjects
-            const usersCollection = await getUsersCollection();
             await usersCollection.updateOne(
                 { uid: supervisorUid },
                 {
@@ -435,7 +444,7 @@ const respondToRequest = async (req, res) => {
                 request.projectId
             );
         } catch (notifError) {
-            console.warn('Could not send student notification:', notifError.message);
+            logger.warn('Could not send student notification:', { error: notifError.message });
         }
 
         res.json({
@@ -444,9 +453,10 @@ const respondToRequest = async (req, res) => {
             newStatus
         });
     } catch (error) {
-        console.error('Error responding to request:', error);
+        logger.error('Error responding to request:', { error: error.message, requestId: req.params.id });
         res.status(500).json({
-            message: 'Error responding to request',
+            message: 'Error responding to collaboration request',
+            code: 'RESPOND_REQUEST_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -501,9 +511,10 @@ const getAllSupervisors = async (req, res) => {
             supervisors: supervisorsWithCounts
         });
     } catch (error) {
-        console.error('Error fetching supervisors:', error);
+        logger.error('Error fetching all supervisors:', { error: error.message });
         res.status(500).json({
             message: 'Error fetching supervisors',
+            code: 'FETCH_ALL_SUPERVISORS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -574,9 +585,10 @@ const getSupervisorProfile = async (req, res) => {
             profile: profile
         });
     } catch (error) {
-        console.error('Error fetching supervisor profile:', error);
+        logger.error('Error fetching supervisor profile:', { error: error.message, uid: req.params.id });
         res.status(500).json({
-            message: 'Error fetching supervisor profile',
+            message: 'Error fetching supervisor details',
+            code: 'FETCH_SUPERVISOR_PROFILE_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -590,12 +602,11 @@ const getStudents = async (req, res) => {
     try {
         const { id } = req.params;
 
-        console.log(`🔍 getStudents called for supervisor: ${id}`);
-        console.log(`🔍 Request user: ${req.user?.uid}, role: ${req.user?.role}`);
+        logger.debug(`getStudents called`, { supervisorId: id, userId: req.user?.uid, role: req.user?.role });
 
         // Verify supervisor exists and user has permission
         if (req.user.uid !== id && !req.user.isAdmin && req.user.role !== 'supervisor') {
-            console.log('❌ Access denied - permission check failed');
+            logger.warn('Access denied to getStudents', { requestedId: id, userId: req.user.uid });
             return res.status(403).json({ message: 'Access denied' });
         }
 
@@ -607,12 +618,8 @@ const getStudents = async (req, res) => {
             .find({ supervisorId: id })
             .toArray();
 
-        console.log(`✅ Found ${projects.length} projects for supervisor ${id}`);
-
         // Extract unique student IDs
         const studentIds = [...new Set(projects.map(p => p.authorId).filter(Boolean))];
-
-        console.log(`✅ Found ${studentIds.length} unique students:`, studentIds);
 
         // Get student details
         const students = await usersCollection
@@ -641,16 +648,17 @@ const getStudents = async (req, res) => {
             };
         });
 
-        console.log(`✅ Returning ${studentsWithProjects.length} students with project details`);
+        logger.debug(`Returning ${studentsWithProjects.length} students with project details for supervisor ${id}`);
 
         res.json({
             success: true,
             students: studentsWithProjects
         });
     } catch (error) {
-        console.error('❌ Error fetching students:', error);
+        logger.error('Error fetching students:', { error: error.message, uid: req.params.id });
         res.status(500).json({
-            message: 'Error fetching students',
+            message: 'Error fetching students list',
+            code: 'FETCH_STUDENTS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -702,9 +710,10 @@ const getSupervisedProjects = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error fetching supervised projects:', error);
+        logger.error('Error fetching supervised projects:', { error: error.message, uid: req.params.id });
         res.status(500).json({
             message: 'Error fetching supervised projects',
+            code: 'FETCH_SUPERVISED_PROJECTS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -717,8 +726,6 @@ const getSupervisedProjects = async (req, res) => {
 const getStats = async (req, res) => {
     try {
         const { id } = req.params;
-
-        console.log(`📊 getStats called for supervisor: ${id}`);
 
         // Verify user has permission
         if (req.user.uid !== id && !req.user.isAdmin) {
@@ -733,13 +740,8 @@ const getStats = async (req, res) => {
             .find({ supervisorId: id })
             .toArray();
 
-        console.log(`📊 Found ${projects.length} projects for stats`);
-
         // Get unique students
         const studentIds = [...new Set(projects.map(p => p.authorId).filter(Boolean))];
-
-        console.log(`📊 Calculated ${studentIds.length} unique students from projects`);
-        console.log(`📊 Student IDs:`, studentIds);
 
         // Calculate statistics
         const stats = {
@@ -782,16 +784,17 @@ const getStats = async (req, res) => {
             });
         }
 
-        console.log(`📊 Returning stats: ${stats.totalStudents} students, ${stats.totalProjects} projects`);
+        logger.debug(`Supervisor stats`, { supervisorId: id, totalStudents: stats.totalStudents, totalProjects: stats.totalProjects });
 
         res.json({
             success: true,
             stats: stats
         });
     } catch (error) {
-        console.error('Error fetching supervisor stats:', error);
+        logger.error('Error fetching supervisor stats:', { error: error.message, supervisorId: req.params.id });
         res.status(500).json({
             message: 'Error fetching supervisor statistics',
+            code: 'FETCH_SUPERVISOR_STATS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -849,7 +852,7 @@ const updateProfile = async (req, res) => {
             profile: new User(updatedSupervisor).toJSON()
         });
     } catch (error) {
-        console.error('Error updating supervisor profile:', error);
+        logger.error('Error updating supervisor profile:', { error: error.message, supervisorId: req.params.id });
         res.status(500).json({
             message: 'Error updating profile',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined

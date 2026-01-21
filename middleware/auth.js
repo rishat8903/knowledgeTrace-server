@@ -1,5 +1,6 @@
 // Firebase token verification middleware
 const admin = require('firebase-admin');
+const logger = require('../config/logger');
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
@@ -10,14 +11,14 @@ if (!admin.apps.length) {
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
-      console.log('✅ Firebase Admin initialized successfully');
+      logger.info('Firebase Admin initialized successfully');
     } else {
-      console.warn('⚠️ Firebase Admin not initialized. Set FIREBASE_SERVICE_ACCOUNT_KEY in .env');
+      logger.warn('Firebase Admin not initialized. Set FIREBASE_SERVICE_ACCOUNT_KEY in .env');
     }
   } catch (error) {
-    console.error('❌ Firebase Admin initialization error:', error.message);
+    logger.error('Firebase Admin initialization error:', { error: error.message });
     if (error.message.includes('Unexpected token')) {
-      console.error('💡 Tip: Check if FIREBASE_SERVICE_ACCOUNT_KEY in .env is a valid single-line JSON string.');
+      logger.error('Tip: Check if FIREBASE_SERVICE_ACCOUNT_KEY in .env is a valid single-line JSON string.');
     }
   }
 }
@@ -46,13 +47,13 @@ const verifyToken = async (req, res, next) => {
     if (!admin.apps.length) {
       // If Firebase Admin is not configured, skip verification (for development only)
       if (process.env.NODE_ENV === 'production') {
-        console.error('Firebase Admin not configured in production!');
+        logger.error('CRITICAL: Firebase Admin not configured in production!');
         return res.status(500).json({
           message: 'Server configuration error',
           code: 'CONFIG_ERROR'
         });
       }
-      console.warn('⚠️ Firebase Admin not configured, skipping token verification (DEV MODE)');
+      logger.warn('Firebase Admin not configured, skipping token verification (DEV MODE)');
       req.user = { uid: 'dev-user', email: 'test-student@ugrad.iiuc.ac.bd', name: 'Dev User' };
       return next();
     }
@@ -76,7 +77,7 @@ const verifyToken = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error('Token verification error:', error);
+    logger.error('Token verification failure:', { error: error.message, code: error.code });
 
     // Provide specific error messages
     let message = 'Invalid or expired token';
@@ -133,14 +134,14 @@ const requireAdmin = async (req, res, next) => {
   try {
     // Ensure user is authenticated first
     if (!req.user || !req.user.uid) {
-      console.error('❌ requireAdmin: No user or uid in request');
+      logger.error('requireAdmin attempt without authentication');
       return res.status(401).json({
         message: 'Authentication required',
         code: 'NOT_AUTHENTICATED'
       });
     }
 
-    console.log(`🔍 requireAdmin: Checking admin status for user: ${req.user.uid}`);
+    logger.debug('Checking admin status', { uid: req.user.uid });
 
     // Check database for admin status
     const { getUsersCollection } = require('../config/database');
@@ -151,9 +152,7 @@ const requireAdmin = async (req, res, next) => {
 
       // Verify it's actually a collection
       if (!usersCollection || typeof usersCollection.findOne !== 'function') {
-        console.error('❌ requireAdmin: Invalid collection object');
-        console.error('❌ requireAdmin: Collection type:', typeof usersCollection);
-        console.error('❌ requireAdmin: Collection value:', usersCollection);
+        logger.error('requireAdmin: Invalid collection object', { collectionType: typeof usersCollection });
         return res.status(500).json({
           message: 'Database collection not available or invalid',
           code: 'DB_ERROR',
@@ -161,10 +160,9 @@ const requireAdmin = async (req, res, next) => {
         });
       }
 
-      console.log('✅ requireAdmin: Got valid users collection');
+      logger.debug('requireAdmin: Got valid users collection');
     } catch (dbError) {
-      console.error('❌ requireAdmin: Error getting users collection:', dbError);
-      console.error('Error stack:', dbError.stack);
+      logger.error('requireAdmin: Error getting users collection:', { error: dbError.message });
       return res.status(500).json({
         message: 'Database connection error',
         code: 'DB_CONNECTION_ERROR',
@@ -175,10 +173,9 @@ const requireAdmin = async (req, res, next) => {
     let user;
     try {
       user = await usersCollection.findOne({ uid: req.user.uid });
-      console.log(`🔍 requireAdmin: Found user: ${user ? 'Yes' : 'No'}, isAdmin: ${user?.isAdmin}`);
+      logger.debug('Admin status check result', { uid: req.user.uid, isAdmin: user?.isAdmin });
     } catch (findError) {
-      console.error('❌ requireAdmin: Error finding user:', findError);
-      console.error('Error stack:', findError.stack);
+      logger.error('requireAdmin: Error finding user:', { error: findError.message });
       return res.status(500).json({
         message: 'Error querying user database',
         code: 'DB_QUERY_ERROR',
@@ -187,7 +184,7 @@ const requireAdmin = async (req, res, next) => {
     }
 
     if (!user) {
-      console.warn(`⚠️ requireAdmin: User profile not found for uid: ${req.user.uid}`);
+      logger.warn('requireAdmin: User profile not found', { uid: req.user.uid });
       return res.status(403).json({
         message: 'User profile not found. Please complete your profile.',
         code: 'USER_NOT_FOUND'
@@ -196,22 +193,21 @@ const requireAdmin = async (req, res, next) => {
 
     // Check admin status - must be explicitly true
     if (user.isAdmin !== true) {
-      console.warn(`🚫 requireAdmin: User ${req.user.uid} is not admin (isAdmin: ${user.isAdmin})`);
+      logger.warn('requireAdmin: Access denied - user is not admin', { uid: req.user.uid, role: user.role });
       return res.status(403).json({
         message: 'Admin access required',
         code: 'FORBIDDEN'
       });
     }
 
-    console.log(`✅ requireAdmin: User ${req.user.uid} is verified as admin`);
+    logger.info('Admin access granted', { uid: req.user.uid });
     // Attach admin status to request object
     req.user.isAdmin = true;
     req.user.adminVerified = true; // Flag that admin status was verified
 
     next();
   } catch (error) {
-    console.error('❌ requireAdmin: Unexpected error:', error);
-    console.error('Error stack:', error.stack);
+    logger.error('requireAdmin: Unexpected error:', { error: error.message });
     return res.status(500).json({
       message: 'Error checking admin status',
       code: 'ADMIN_CHECK_ERROR',
@@ -233,7 +229,7 @@ const checkRole = (allowedRoles) => {
     try {
       // Ensure user is authenticated first
       if (!req.user || !req.user.uid) {
-        console.error(`❌ checkRole: No user or uid in request`);
+        logger.error('checkRole attempt without authentication');
         return res.status(401).json({
           message: 'Authentication required',
           code: 'NOT_AUTHENTICATED'
@@ -241,7 +237,7 @@ const checkRole = (allowedRoles) => {
       }
 
       const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
-      console.log(`🔍 checkRole: Checking if user ${req.user.uid} has one of roles: ${roles.join(', ')}`);
+      logger.debug('Checking roles', { uid: req.user.uid, allowedRoles: roles });
 
       // Get user from database to check role
       const { getUsersCollection } = require('../config/database');
@@ -251,14 +247,14 @@ const checkRole = (allowedRoles) => {
         usersCollection = await getUsersCollection();
 
         if (!usersCollection || typeof usersCollection.findOne !== 'function') {
-          console.error('❌ checkRole: Invalid collection object');
+          logger.error('checkRole: Invalid collection object');
           return res.status(500).json({
             message: 'Database collection not available',
             code: 'DB_ERROR'
           });
         }
       } catch (dbError) {
-        console.error('❌ checkRole: Error getting users collection:', dbError);
+        logger.error('checkRole: Error getting users collection:', { error: dbError.message });
         return res.status(500).json({
           message: 'Database connection error',
           code: 'DB_CONNECTION_ERROR'
@@ -268,9 +264,9 @@ const checkRole = (allowedRoles) => {
       let user;
       try {
         user = await usersCollection.findOne({ uid: req.user.uid });
-        console.log(`🔍 checkRole: Found user: ${user ? 'Yes' : 'No'}, role: ${user?.role}`);
+        logger.debug('Role check data fetched', { uid: req.user.uid, role: user?.role });
       } catch (findError) {
-        console.error('❌ checkRole: Error finding user:', findError);
+        logger.error('checkRole: Error finding user:', { error: findError.message });
         return res.status(500).json({
           message: 'Error querying user database',
           code: 'DB_QUERY_ERROR'
@@ -278,7 +274,7 @@ const checkRole = (allowedRoles) => {
       }
 
       if (!user) {
-        console.warn(`⚠️ checkRole: User profile not found for uid: ${req.user.uid}`);
+        logger.warn('checkRole: User profile not found', { uid: req.user.uid });
         return res.status(403).json({
           message: 'User profile not found. Please complete your profile.',
           code: 'USER_NOT_FOUND'
@@ -289,7 +285,7 @@ const checkRole = (allowedRoles) => {
       const userRole = user.role || 'student'; // Default to student if no role set
 
       if (!roles.includes(userRole)) {
-        console.warn(`🚫 checkRole: User ${req.user.uid} has role '${userRole}', but needs one of: ${roles.join(', ')}`);
+        logger.warn('checkRole: Access denied - role mismatch', { uid: req.user.uid, currentRole: userRole, allowedRoles: roles });
         return res.status(403).json({
           message: `Access denied. Required role: ${roles.join(' or ')}`,
           code: 'INSUFFICIENT_PERMISSIONS',
@@ -298,14 +294,14 @@ const checkRole = (allowedRoles) => {
         });
       }
 
-      console.log(`✅ checkRole: User ${req.user.uid} has valid role '${userRole}'`);
+      logger.info('Role verified successfully', { uid: req.user.uid, role: userRole });
       // Attach role to request object
       req.user.role = userRole;
       req.user.roleVerified = true;
 
       next();
     } catch (error) {
-      console.error('❌ checkRole: Unexpected error:', error);
+      logger.error('checkRole: Unexpected error:', { error: error.message });
       return res.status(500).json({
         message: 'Error checking user permissions',
         code: 'PERMISSION_CHECK_ERROR',
@@ -324,7 +320,7 @@ const verifyStudentEmail = async (req, res, next) => {
   try {
     // Ensure user is authenticated first
     if (!req.user || !req.user.email) {
-      console.error('❌ verifyStudentEmail: No user or email in request');
+      logger.error('verifyStudentEmail attempt without user data');
       return res.status(401).json({
         message: 'Authentication required',
         code: 'NOT_AUTHENTICATED'
@@ -335,17 +331,17 @@ const verifyStudentEmail = async (req, res, next) => {
     const validation = validateUniversityEmail(req.user.email);
 
     if (!validation.isValid) {
-      console.warn(`⚠️ Access denied for non-university email: ${req.user.email}`);
+      logger.warn('Access denied: University email validation failed', { email: req.user.email });
       return res.status(403).json({
         message: validation.message,
         code: 'INVALID_EMAIL_DOMAIN'
       });
     }
 
-    console.log(`✅ University email verified: ${req.user.email}`);
+    logger.debug('University email verified successfully', { email: req.user.email });
     next();
   } catch (error) {
-    console.error('❌ verifyStudentEmail: Unexpected error:', error);
+    logger.error('verifyStudentEmail: Unexpected error:', { error: error.message });
     return res.status(500).json({
       message: 'Error verifying email domain',
       code: 'EMAIL_VERIFICATION_ERROR',

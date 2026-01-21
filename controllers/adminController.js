@@ -2,6 +2,7 @@
 // Handles admin-only operations
 const { getProjectsCollection } = require('../config/database');
 const Project = require('../models/Project');
+const logger = require('../config/logger');
 
 /**
  * Get all projects (admin only)
@@ -13,8 +14,12 @@ exports.getAllProjects = async (req, res) => {
         const projects = await projectsCollection.find({}).sort({ createdAt: -1 }).toArray();
         res.json(projects.map(p => new Project(p).toJSON()));
     } catch (error) {
-        console.error('Error fetching all projects:', error);
-        res.status(500).json({ message: 'Error fetching projects' });
+        logger.error('Error fetching all projects (admin):', { error: error.message });
+        res.status(500).json({
+            message: 'Error fetching projects',
+            code: 'FETCH_PROJECTS_ADMIN_ERROR',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
@@ -31,8 +36,12 @@ exports.getPendingProjects = async (req, res) => {
             .toArray();
         res.json(projects.map(p => new Project(p).toJSON()));
     } catch (error) {
-        console.error('Error fetching pending projects:', error);
-        res.status(500).json({ message: 'Error fetching pending projects' });
+        logger.error('Error fetching pending projects (admin):', { error: error.message });
+        res.status(500).json({
+            message: 'Error fetching pending projects',
+            code: 'FETCH_PENDING_PROJECTS_ADMIN_ERROR',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 

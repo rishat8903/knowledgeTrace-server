@@ -12,6 +12,7 @@ const { workflowReviewSchema, projectCommentSchema } = require('../validators/th
 const Project = require('../models/Project');
 const ProjectMilestone = require('../models/ProjectMilestone');
 const ProjectComment = require('../models/ProjectComment');
+const logger = require('../config/logger');
 const {
     createNotification,
     createProjectStatusUpdateNotification,
@@ -63,9 +64,10 @@ const getPendingApprovals = async (req, res) => {
             projects: enrichedProjects
         });
     } catch (error) {
-        console.error('Error fetching pending approvals:', error);
+        logger.error('Error fetching pending approvals:', { error: error.message, uid: req.user.uid });
         res.status(500).json({
             message: 'Error fetching pending approvals',
+            code: 'FETCH_PENDING_APPROVALS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -145,7 +147,7 @@ const submitProposal = async (req, res) => {
                 project._id
             );
         } catch (notifError) {
-            console.warn('Could not send supervisor notification:', notifError.message);
+            logger.warn('Could not send supervisor notification for proposal:', { error: notifError.message, supervisorId: project.supervisorId });
         }
 
         res.json({
@@ -154,9 +156,10 @@ const submitProposal = async (req, res) => {
             newStatus: 'supervisor_review'
         });
     } catch (error) {
-        console.error('Error submitting proposal:', error);
+        logger.error('Error submitting proposal:', { error: error.message, projectId: req.body.projectId, uid: req.user.uid });
         res.status(500).json({
             message: 'Error submitting proposal',
+            code: 'SUBMIT_PROPOSAL_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -262,9 +265,10 @@ const reviewProject = async (req, res) => {
             newStatus
         });
     } catch (error) {
-        console.error('Error reviewing project:', error);
+        logger.error('Error reviewing project:', { error: error.message, projectId: req.params.projectId, uid: req.user.uid });
         res.status(500).json({
             message: 'Error reviewing project',
+            code: 'REVIEW_PROJECT_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -318,9 +322,10 @@ const addComment = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error adding comment:', error);
+        logger.error('Error adding workflow comment:', { error: error.message, projectId: req.params.projectId, uid: req.user.uid });
         res.status(500).json({
             message: 'Error adding comment',
+            code: 'ADD_WORKFLOW_COMMENT_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -384,9 +389,10 @@ const getProjectTimeline = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error fetching timeline:', error);
+        logger.error('Error fetching project timeline:', { error: error.message, projectId: req.params.projectId });
         res.status(500).json({
             message: 'Error fetching project timeline',
+            code: 'FETCH_TIMELINE_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -447,7 +453,7 @@ const advancePhase = async (req, res) => {
                 project._id
             );
         } catch (notifError) {
-            console.warn('Could not send student notification:', notifError.message);
+            logger.warn('Could not send student notification for phase advancement:', { error: notifError.message, authorId: project.authorId, projectId: project._id });
         }
 
         res.json({
@@ -456,9 +462,10 @@ const advancePhase = async (req, res) => {
             newStatus: newPhase
         });
     } catch (error) {
-        console.error('Error advancing phase:', error);
+        logger.error('Error advancing project phase:', { error: error.message, projectId: req.params.projectId, uid: req.user.uid });
         res.status(500).json({
             message: 'Error advancing project phase',
+            code: 'ADVANCE_PHASE_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }

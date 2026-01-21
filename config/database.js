@@ -199,29 +199,21 @@ async function getUsersCollection() {
       throw new Error('Database not available');
     }
 
-    console.log('🔍 getUsersCollection: DB object type:', typeof db);
-    console.log('🔍 getUsersCollection: DB has collection method?', typeof db.collection === 'function');
-
     const collection = db.collection('users');
-
-    console.log('🔍 getUsersCollection: Collection type:', typeof collection);
-    console.log('🔍 getUsersCollection: Collection constructor:', collection?.constructor?.name);
-    console.log('🔍 getUsersCollection: Collection has findOne?', typeof collection?.findOne === 'function');
 
     if (!collection) {
       throw new Error('Users collection not available');
     }
 
     if (typeof collection.findOne !== 'function') {
-      console.error('❌ getUsersCollection: Collection object is not valid');
-      console.error('❌ getUsersCollection: Collection value:', collection);
-      throw new Error('Collection object is not a valid MongoDB collection');
+      const error = new Error('Collection object is not a valid MongoDB collection');
+      console.error('❌ getUsersCollection: Collection object is not valid:', collection);
+      throw error;
     }
 
     return collection;
   } catch (error) {
     console.error('❌ Error getting users collection:', error);
-    console.error('Error stack:', error.stack);
     throw error;
   }
 }

@@ -9,6 +9,7 @@ const {
 const { checkDuplicate } = require('../utils/duplicateDetection');
 const { thesisSearchSchema } = require('../validators/thesisSchemas');
 const Project = require('../models/Project');
+const logger = require('../config/logger');
 
 /**
  * Search theses with advanced filters
@@ -94,7 +95,7 @@ const searchTheses = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error searching theses:', error);
+        logger.error('Error searching theses:', { error: error.message });
         res.status(500).json({
             message: 'Error searching theses',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -149,7 +150,7 @@ const getThesisById = async (req, res) => {
             supervisor: supervisorDetails
         });
     } catch (error) {
-        console.error('Error fetching thesis:', error);
+        logger.error('Error fetching thesis:', { error: error.message, id: req.params.id });
         res.status(500).json({
             message: 'Error fetching thesis details',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -194,9 +195,10 @@ const checkDuplicateThesis = async (req, res) => {
                 : null
         });
     } catch (error) {
-        console.error('Error checking duplicate:', error);
+        logger.error('Error checking duplicate thesis:', { error: error.message });
         res.status(500).json({
             message: 'Error checking for duplicates',
+            code: 'DUPLICATE_CHECK_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
@@ -241,9 +243,10 @@ const getThesisStats = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error fetching stats:', error);
+        logger.error('Error fetching thesis stats:', { error: error.message });
         res.status(500).json({
             message: 'Error fetching repository statistics',
+            code: 'FETCH_THESIS_STATS_ERROR',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }

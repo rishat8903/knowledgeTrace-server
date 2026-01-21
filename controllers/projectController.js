@@ -2,6 +2,7 @@
 // Handles all project-related business logic
 const { getProjectsCollection, getUsersCollection, getNotificationsCollection, getActivitiesCollection, ObjectId } = require('../config/database');
 const Project = require('../models/Project');
+const logger = require('../config/logger');
 const { stripHtml, getPlainTextLength } = require('../utils/htmlStrip');
 const {
     createNotification,
@@ -26,7 +27,7 @@ exports.getAllProjects = async (req, res) => {
                 const user = await usersCollection.findOne({ uid: req.user.uid });
                 isAdmin = user?.isAdmin === true;
             } catch (error) {
-                console.error('Error checking admin status:', error);
+                logger.error('Error checking admin status in getAllProjects:', { error: error.message, uid: req.user.uid });
             }
         }
 
@@ -34,7 +35,7 @@ exports.getAllProjects = async (req, res) => {
         let statusFilter = null;
         if (isAdmin) {
             // Admins can see all projects - no status filter
-            console.log('👤 Admin user detected - returning all projects');
+            logger.debug('Admin user fetching all projects');
         } else if (req.user && req.user.uid) {
             // Authenticated users can see approved projects AND their own pending projects
             statusFilter = {
@@ -109,9 +110,9 @@ exports.getAllProjects = async (req, res) => {
             query.$and = [statusFilter];
         }
 
-        console.log('🔍 Fetching projects with query:', JSON.stringify(query, null, 2));
+        logger.debug('Fetching projects', { query });
         const projects = await projectsCollection.find(query).sort({ createdAt: -1 }).toArray();
-        console.log(`✅ Found ${projects.length} projects`);
+        logger.info(`Found ${projects.length} projects`);
 
         // Log status distribution for debugging (especially for admins)
         if (isAdmin) {
@@ -120,13 +121,17 @@ exports.getAllProjects = async (req, res) => {
                 approved: projects.filter(p => p.status === 'approved').length,
                 rejected: projects.filter(p => p.status === 'rejected').length,
             };
-            console.log('📊 Admin view - Projects by status:', statusCounts);
+            logger.debug('Admin view project status distribution', statusCounts);
         }
 
         res.json(projects.map(p => new Project(p).toJSON()));
     } catch (error) {
-        console.error('Error fetching projects:', error);
-        res.status(500).json({ message: 'Error fetching projects' });
+        logger.error('Error fetching all projects:', { error: error.message });
+        res.status(500).json({
+            message: 'Error fetching projects',
+            code: 'FETCH_PROJECTS_ERROR',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
@@ -145,18 +150,28 @@ exports.getProjectById = async (req, res) => {
         }
 
         if (!project) {
-            return res.status(404).json({ message: 'Project not found' });
+            return res.status(404).json({
+                message: 'Project not found',
+                code: 'PROJECT_NOT_FOUND'
+            });
         }
 
         // Only show approved projects to non-authenticated users
         if (!req.user && project.status !== 'approved') {
-            return res.status(403).json({ message: 'Project not available' });
+            return res.status(403).json({
+                message: 'Project not available',
+                code: 'ACCESS_DENIED'
+            });
         }
 
         res.json(new Project(project).toJSON());
     } catch (error) {
-        console.error('Error fetching project:', error);
-        res.status(500).json({ message: 'Error fetching project' });
+        logger.error('Error fetching project by ID:', { error: error.message, id: req.params.id });
+        res.status(500).json({
+            message: 'Error fetching project',
+            code: 'FETCH_PROJECT_ERROR',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
@@ -180,8 +195,12 @@ exports.getUserProjects = async (req, res) => {
 
         res.json(projects.map(p => new Project(p).toJSON()));
     } catch (error) {
-        console.error('Error fetching user projects:', error);
-        res.status(500).json({ message: 'Error fetching user projects' });
+        logger.error('Error fetching user projects:', { error: error.message, userId: req.params.userId });
+        res.status(500).json({
+            message: 'Error fetching user projects',
+            code: 'FETCH_USER_PROJECTS_ERROR',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
@@ -190,34 +209,33 @@ exports.getUserProjects = async (req, res) => {
  */
 exports.createProject = async (req, res) => {
     try {
-        console.log('📥 Received project submission request');
-        console.log('📋 Request body keys:', Object.keys(req.body));
-        console.log('📄 File uploaded:', req.file ? 'Yes' : 'No');
+        logger.info('Project submission attempt', { uid: req.user.uid, hasFile: !!req.file });
 
         const projectsCollection = await getProjectsCollection();
 
         // Basic input validation
         if (!req.body.title || typeof req.body.title !== 'string' || req.body.title.trim().length === 0) {
-            return res.status(400).json({ message: 'Project title is required' });
+            return res.status(400).json({ message: 'Project title is required', code: 'VALIDATION_ERROR' });
         }
         if (req.body.title.length > 200) {
-            return res.status(400).json({ message: 'Project title must be less than 200 characters' });
+            return res.status(400).json({ message: 'Project title must be less than 200 characters', code: 'VALIDATION_ERROR' });
         }
 
         if (!req.body.abstract || typeof req.body.abstract !== 'string' || req.body.abstract.trim().length === 0) {
-            return res.status(400).json({ message: 'Project abstract is required' });
+            return res.status(400).json({ message: 'Project abstract is required', code: 'VALIDATION_ERROR' });
         }
 
         // Strip HTML tags and validate plain text length
         const plainTextAbstract = stripHtml(req.body.abstract);
-        if (plainTextAbstract.length < 50) {
+        if (plainTextAbstract.length < 100) {
             return res.status(400).json({
-                message: `Abstract must be at least 50 characters long. Current length: ${plainTextAbstract.length} characters`
+                message: `Abstract must be at least 100 characters long. Current length: ${plainTextAbstract.length} characters`,
+                code: 'VALIDATION_ERROR'
             });
         }
 
-        if (req.body.abstract.length > 5000) {
-            return res.status(400).json({ message: 'Project abstract must be less than 5000 characters' });
+        if (plainTextAbstract.length > 5000) {
+            return res.status(400).json({ message: 'Project abstract must be less than 5000 characters', code: 'VALIDATION_ERROR' });
         }
 
         let pdfUrl = '';
@@ -226,11 +244,11 @@ exports.createProject = async (req, res) => {
                 const { uploadToCloudinary } = require('../utils/cloudinary');
                 pdfUrl = await uploadToCloudinary(req.file.buffer, req.file.originalname);
                 if (!pdfUrl) {
-                    return res.status(500).json({ message: 'Failed to upload PDF file. Please try again.' });
+                    return res.status(500).json({ message: 'Failed to upload PDF file. Please try again.', code: 'UPLOAD_ERROR' });
                 }
             } catch (uploadError) {
-                console.error('PDF upload error:', uploadError);
-                return res.status(500).json({ message: 'Failed to upload PDF file. Please try again.' });
+                logger.error('PDF upload error during project creation:', { error: uploadError.message, uid: req.user.uid });
+                return res.status(500).json({ message: 'Failed to upload PDF file. Please try again.', code: 'UPLOAD_ERROR' });
             }
         }
 
@@ -285,7 +303,8 @@ exports.createProject = async (req, res) => {
 
             if (!supervisorUser) {
                 return res.status(400).json({
-                    message: 'Selected supervisor not found or invalid role'
+                    message: 'Selected supervisor not found or invalid role',
+                    code: 'INVALID_SUPERVISOR'
                 });
             }
 
@@ -293,12 +312,12 @@ exports.createProject = async (req, res) => {
             supervisor = supervisorUser.name;
             supervisorDepartment = supervisorUser.department || '';
 
-            console.log('✅ Supervisor validated:', supervisor, '(', supervisorId, ')');
+            logger.info('Supervisor validated for project', { supervisor, supervisorId });
         } else if (req.body.supervisor) {
             // Legacy format: supervisor name only (for backward compatibility)
             supervisor = String(req.body.supervisor).trim().substring(0, 100);
             supervisorId = ''; // No ID in legacy mode
-            console.log('⚠️ Legacy supervisor mode:', supervisor);
+            logger.warn('Legacy supervisor mode used', { supervisor, uid: req.user.uid });
         }
 
         const year = parseInt(req.body.year);
@@ -316,10 +335,10 @@ exports.createProject = async (req, res) => {
                     if (url.hostname === 'github.com' || url.hostname === 'www.github.com') {
                         githubLink = githubUrl.substring(0, 500);
                     } else {
-                        return res.status(400).json({ message: 'Invalid GitHub URL. Must be a github.com link.' });
+                        return res.status(400).json({ message: 'Invalid GitHub URL. Must be a github.com link.', code: 'VALIDATION_ERROR' });
                     }
                 } catch {
-                    return res.status(400).json({ message: 'Invalid GitHub URL format.' });
+                    return res.status(400).json({ message: 'Invalid GitHub URL format.', code: 'VALIDATION_ERROR' });
                 }
             }
         }
@@ -345,19 +364,19 @@ exports.createProject = async (req, res) => {
         // Verify database connection before insert
         const { isConnected } = require('../config/database');
         if (!isConnected()) {
-            return res.status(500).json({ message: 'Database connection error. Please try again.' });
+            return res.status(500).json({ message: 'Database connection error. Please try again.', code: 'DB_CONNECTION_ERROR' });
         }
 
         const result = await projectsCollection.insertOne(projectData);
 
         if (!result.acknowledged) {
-            return res.status(500).json({ message: 'Failed to save project to database' });
+            return res.status(500).json({ message: 'Failed to save project to database', code: 'DB_WRITE_ERROR' });
         }
 
         const project = await projectsCollection.findOne({ _id: result.insertedId });
 
         if (!project) {
-            return res.status(500).json({ message: 'Project created but could not be retrieved' });
+            return res.status(500).json({ message: 'Project created but could not be retrieved', code: 'DB_RETRIEVAL_ERROR' });
         }
 
         // Create notification for admin
@@ -369,13 +388,17 @@ exports.createProject = async (req, res) => {
                 project._id
             );
         } catch (notifError) {
-            console.warn('Could not send admin notification:', notifError.message);
+            logger.warn('Could not send admin notification for new project:', { error: notifError.message, projectId: project._id });
         }
 
         res.status(201).json({ message: 'Project submitted successfully', project: new Project(project).toJSON() });
     } catch (error) {
-        console.error('Error submitting project:', error);
-        res.status(500).json({ message: error.message || 'Error submitting project' });
+        logger.error('Error creating project:', { error: error.message, uid: req.user.uid });
+        res.status(500).json({
+            message: 'Error creating project',
+            code: 'CREATE_PROJECT_ERROR',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
@@ -429,13 +452,13 @@ exports.updateProjectStatus = async (req, res) => {
                     project._id
                 );
             } catch (notifError) {
-                console.warn('Could not send student notification:', notifError.message);
+                logger.warn('Could not send student notification for status update:', { error: notifError.message, projectId: project._id });
             }
         }
 
         res.json({ message: 'Project status updated', project: new Project(updatedProject).toJSON() });
     } catch (error) {
-        console.error('Error updating project status:', error);
+        logger.error('Error updating project status:', { error: error.message, projectId: req.params.id });
         res.status(500).json({ message: 'Error updating project status' });
     }
 };
@@ -496,6 +519,27 @@ exports.updateProject = async (req, res) => {
         }
         if (req.body.githubLink) updateData.githubLink = String(req.body.githubLink).trim().substring(0, 500);
 
+        // Enhance updateProject to handle supervisorId
+        if (req.body.supervisorId) {
+            const supervisorId = String(req.body.supervisorId).trim();
+            const supervisorUser = await usersCollection.findOne({ uid: supervisorId, role: 'supervisor' });
+            if (supervisorUser) {
+                updateData.supervisorId = supervisorId;
+                updateData.supervisor = supervisorUser.name;
+                updateData.supervisorDepartment = supervisorUser.department || '';
+                logger.info('Supervisor updated for project via ID', { projectId: id, supervisorId });
+            }
+        } else if (req.body.supervisor) {
+            const newSupervisorName = String(req.body.supervisor).trim().substring(0, 100);
+            // Only update/clear if the name actually changed from what's currently stored
+            if (newSupervisorName !== project.supervisor) {
+                updateData.supervisor = newSupervisorName;
+                updateData.supervisorId = ''; // Clear ID if name changed and no new ID provided
+                updateData.supervisorDepartment = '';
+                logger.info('Supervisor name updated for project (ID cleared)', { projectId: id, newName: newSupervisorName });
+            }
+        }
+
         await projectsCollection.updateOne(
             { _id: project._id },
             { $set: updateData }
@@ -504,8 +548,12 @@ exports.updateProject = async (req, res) => {
         const updatedProject = await projectsCollection.findOne({ _id: project._id });
         res.json({ message: 'Project updated successfully', project: new Project(updatedProject).toJSON() });
     } catch (error) {
-        console.error('Error updating project:', error);
-        res.status(500).json({ message: 'Error updating project details' });
+        logger.error('Error updating project:', { error: error.message, projectId: req.params.id });
+        res.status(500).json({
+            message: 'Error updating project details',
+            code: 'UPDATE_PROJECT_ERROR',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
@@ -542,7 +590,7 @@ exports.deleteProject = async (req, res) => {
 
         res.json({ message: 'Project deleted successfully' });
     } catch (error) {
-        console.error('Error deleting project:', error);
+        logger.error('Error deleting project:', { error: error.message, projectId: req.params.id });
         res.status(500).json({ message: 'Error deleting project' });
     }
 };
@@ -607,7 +655,7 @@ exports.toggleLike = async (req, res) => {
             project: new Project(updatedProject).toJSON()
         });
     } catch (error) {
-        console.error('Error toggling like:', error);
+        logger.error('Error toggling like:', { error: error.message, projectId: req.params.id, uid: req.user.uid });
         res.status(500).json({ message: 'Error toggling like' });
     }
 };
@@ -674,7 +722,7 @@ exports.toggleBookmark = async (req, res) => {
             isBookmarked: !isBookmarked
         });
     } catch (error) {
-        console.error('Error toggling bookmark:', error);
+        logger.error('Error toggling bookmark:', { error: error.message, projectId: req.params.id, uid: req.user.uid });
         res.status(500).json({ message: 'Error toggling bookmark' });
     }
 };
@@ -737,7 +785,7 @@ exports.trackView = async (req, res) => {
 
         res.json({ message: 'View tracked' });
     } catch (error) {
-        console.error('Error tracking view:', error);
+        logger.error('Error tracking project view:', { error: error.message, projectId: req.params.id });
         res.status(500).json({ message: 'Error tracking view' });
     }
 };
@@ -799,7 +847,7 @@ exports.addComment = async (req, res) => {
 
         res.status(201).json({ message: 'Comment added', comment });
     } catch (error) {
-        console.error('Error adding comment:', error);
+        logger.error('Error adding comment:', { error: error.message, projectId: req.params.id });
         res.status(500).json({ message: 'Error adding comment' });
     }
 };
@@ -849,7 +897,7 @@ exports.editComment = async (req, res) => {
 
         res.json({ message: 'Comment updated', comment: comments[commentIndex] });
     } catch (error) {
-        console.error('Error editing comment:', error);
+        logger.error('Error editing comment:', { error: error.message, commentId: req.params.commentId });
         res.status(500).json({ message: 'Error editing comment' });
     }
 };
@@ -905,7 +953,7 @@ exports.deleteComment = async (req, res) => {
 
         res.json({ message: 'Comment deleted' });
     } catch (error) {
-        console.error('Error deleting comment:', error);
+        logger.error('Error deleting comment:', { error: error.message, commentId: req.params.commentId });
         res.status(500).json({ message: 'Error deleting comment' });
     }
 };
@@ -978,7 +1026,7 @@ exports.addReply = async (req, res) => {
 
         res.status(201).json({ message: 'Reply added', reply });
     } catch (error) {
-        console.error('Error adding reply:', error);
+        logger.error('Error adding reply:', { error: error.message, commentId: req.params.commentId });
         res.status(500).json({ message: 'Error adding reply' });
     }
 };
@@ -1038,7 +1086,7 @@ exports.editReply = async (req, res) => {
 
         res.json({ message: 'Reply updated', reply: replies[replyIndex] });
     } catch (error) {
-        console.error('Error editing reply:', error);
+        logger.error('Error editing reply:', { error: error.message, replyId: req.params.replyId });
         res.status(500).json({ message: 'Error editing reply' });
     }
 };
@@ -1104,7 +1152,7 @@ exports.deleteReply = async (req, res) => {
 
         res.json({ message: 'Reply deleted' });
     } catch (error) {
-        console.error('Error deleting reply:', error);
+        logger.error('Error deleting reply:', { error: error.message, replyId: req.params.replyId });
         res.status(500).json({ message: 'Error deleting reply' });
     }
 };
@@ -1158,11 +1206,11 @@ exports.viewPdf = async (req, res) => {
             // Pipe the PDF stream to response
             cloudinaryResponse.pipe(res);
         }).on('error', (error) => {
-            console.error('Error fetching PDF:', error);
+            logger.error('HTTP Error fetching PDF from Cloudinary:', { error: error.message, projectId: req.params.id });
             res.status(500).json({ message: 'Error loading PDF' });
         });
     } catch (error) {
-        console.error('Error in viewPdf:', error);
+        logger.error('Error in viewPdf controller:', { error: error.message, projectId: req.params.id });
         res.status(500).json({ message: 'Error loading PDF' });
     }
 };
