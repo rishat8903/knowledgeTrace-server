@@ -131,6 +131,9 @@ app.use((req, res, next) => {
 // Stricter rate limiting for auth endpoints
 const authRateLimit = rateLimit(15 * 60 * 1000, isDevelopment ? 100 : 20);
 
+// More lenient rate limiting for admin endpoints (they need to load dashboard data)
+const adminRateLimit = rateLimit(15 * 60 * 1000, isDevelopment ? 500 : 300);
+
 // Add security headers to help with OAuth popups
 app.use((req, res, next) => {
   // Allow popups for OAuth
@@ -183,7 +186,7 @@ app.use('/api/users', (req, res, next) => {
 
 app.use('/api/projects', projectRoutes);
 app.use('/api/collab', collabRoutes); // Collaboration routes
-app.use('/api/admin', authRateLimit, adminRoutes);
+app.use('/api/admin', adminRateLimit, adminRoutes); // Use lenient rate limit for admin
 app.use('/api/activity', activityRoutes);
 app.use('/api/notifications', notificationRoutes);
 
